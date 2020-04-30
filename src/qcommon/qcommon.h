@@ -956,10 +956,10 @@ qboolean FS_MatchFileInPak(const char *filepath, const char *match);
 #define IsPathSep(X) ((X) == '\\' || (X) == '/' || (X) == PATH_SEP)
 
 #if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-const char* DL_CreateFinalDestPath(const char *temp, const char *dest);
+const char* DL_ContainerizePath(const char *temp, const char *dest);
 void FS_InitWhitelist(void);
 qboolean FS_IsWhitelisted(const char *pakName, const char *hash);
-#define FS_CONTAINER_PREFIX "dlcache"
+#define FS_CONTAINER "dlcache"
 #endif
 
 

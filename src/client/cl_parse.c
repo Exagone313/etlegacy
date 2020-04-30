@@ -788,10 +788,6 @@ void CL_ParseGamestate(msg_t *msg)
 		Com_Error(ERR_DROP, "Couldn't load an official pak file; verify your installation and make sure it has been updated to the latest version.");
 	}
 
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-	Cvar_Set("fs_containerName", FS_CONTAINER_PREFIX);
-#endif
-
 	// reinitialize the filesystem if the game directory has changed
 	FS_ConditionalRestart(clc.checksumFeed);
 
@@ -815,7 +811,7 @@ void CL_ParseDownload(msg_t *msg)
 	int           size;
 	unsigned char data[MAX_MSGLEN];
 	int           block;
-	const char    *to_ospath;
+	const char    *dlDestPath;
 
 	if (!*cls.download.downloadTempName)
 	{
@@ -970,12 +966,12 @@ void CL_ParseDownload(msg_t *msg)
 			FS_FCloseFile(cls.download.download);
 			cls.download.download = 0;
 		#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-			to_ospath = DL_CreateFinalDestPath(cls.download.downloadTempName, cls.download.downloadName);
+			dlDestPath = DL_ContainerizePath(cls.download.downloadTempName, cls.download.downloadName);
 		#else
-			to_ospath = FS_BuildOSPath(Cvar_VariableString("fs_homepath"), cls.download.downloadTempName, NULL);
+			dlDestPath = cls.download.downloadTempName;
 		#endif
 			// rename the file
-			FS_SV_Rename(cls.download.downloadTempName, to_ospath);
+			FS_SV_Rename(cls.download.downloadTempName, dlDestPath);
 		}
 		*cls.download.downloadTempName = *cls.download.downloadName = 0;
 		Cvar_Set("cl_downloadName", "");

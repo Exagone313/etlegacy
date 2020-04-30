@@ -44,28 +44,26 @@
 
 #if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
 /**
- * @brief DL_CreateFinalDestPath create destination path using whitelist
+ * @brief DL_ContainerizePath target destination path to container if needed
  */
-const char* DL_CreateFinalDestPath(const char *temp, const char *dest)
+const char* DL_ContainerizePath(const char *temp, const char *dest)
 {
-	const char *pakName = FS_Basename(dest);
-	const char *destDirpath  = FS_Dirpath(dest);
-	const char *homePath     = Cvar_VariableString("fs_homepath");
-	char       hash[41]      = { 0 };
-	const char *gamedir      = Cvar_VariableString("fs_game");
+	char       hash[41] = { 0 };
+	const char *pakname = FS_Basename(dest);
+	const char *gamedir = FS_Dirpath(dest);
 
 	FS_CalculateFileSHA1(temp, hash);
 
 	// generate container for valid gamedirs only
 	if (!Q_stricmp(gamedir, BASEGAME) || !Q_stricmp(gamedir, DEFAULT_MODGAME)) 
 	{
-		if (!FS_IsWhitelisted(pakName, hash))
+		if (!FS_IsWhitelisted(pakname, hash))
 		{
-			return FS_BuildOSPath(homePath, destDirpath, va("%s%c%s", Cvar_VariableString("fs_containerName"), PATH_SEP, pakName));
+			return va("%s%c%s%c%s", gamedir, PATH_SEP, FS_CONTAINER, PATH_SEP, pakname);
 		}
 	}
 
-	return FS_BuildOSPath(homePath, dest, NULL);
+	return dest;
 }
 #endif
 
@@ -342,7 +340,8 @@ void Com_WWWDownload(void)
 
 		dld.download = 0;
 #if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-		to_ospath = DL_CreateFinalDestPath(dld.downloadTempName, dld.originalDownloadName);
+		to_ospath = FS_BuildOSPath(Cvar_VariableString("fs_homepath"), 
+		                           DL_ContainerizePath(dld.downloadTempName, dld.originalDownloadName), NULL);
 #else
 		to_ospath = FS_BuildOSPath(Cvar_VariableString("fs_homepath"), dld.originalDownloadName, NULL);
 #endif

@@ -262,14 +262,6 @@ static cvar_t       *fs_basepath;
 static cvar_t       *fs_basegame;
 static cvar_t       *fs_gamedirvar;
 static searchpath_t *fs_searchpaths;
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-/**
-* @var fs_containerName
-* @brief This is a directory name where non secure downloadable content is stored,
-*        set on each server connect once the gamestate is received
-*/
-static cvar_t *fs_containerName;
-#endif
 
 /**
  * @var fs_readCount
@@ -4120,11 +4112,10 @@ static void FS_AddBothGameDirectories(const char *subpath)
 			FS_AddGameDirectory(fs_homepath->string, subpath);
 #if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
 			/* only mount container for certain directories */
-			if ((!Q_stricmp(subpath, BASEGAME) || !Q_stricmp(subpath, DEFAULT_MODGAME)) &&
-				fs_containerName->string[0])
+			if ((!Q_stricmp(subpath, BASEGAME) || !Q_stricmp(subpath, DEFAULT_MODGAME)))
 			{
 				char contPath[MAX_OSPATH];
-				Com_sprintf(contPath, sizeof(contPath), "%s%c%s", subpath, PATH_SEP, fs_containerName->string);
+				Com_sprintf(contPath, sizeof(contPath), "%s%c%s", subpath, PATH_SEP, FS_CONTAINER);
 				FS_AddGameDirectory(fs_homepath->string, contPath);
 				Q_strncpyz(fs_gamedir, subpath, sizeof(fs_gamedir));
 			}
@@ -4167,10 +4158,6 @@ static void FS_Startup(const char *gameName)
 	fs_homepath = Cvar_Get("fs_homepath", homePath, CVAR_INIT);
 
 	fs_gamedirvar = Cvar_Get("fs_game", "", CVAR_INIT | CVAR_SYSTEMINFO);
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-	fs_containerName = Cvar_Get("fs_containerName", "", CVAR_INIT);
-#endif
-
 
 	if (FS_InvalidGameDir(gameName))
 	{
@@ -4184,12 +4171,6 @@ static void FS_Startup(const char *gameName)
 	{
 		Com_Error(ERR_DROP, "Invalid fs_game '%s'", fs_gamedirvar->string);
 	}
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-	if (FS_InvalidContainerName(fs_containerName->string))
-	{
-		Com_Error(ERR_DROP, "Invalid fs_containerName '%s'", fs_containerName->string);
-	}
-#endif
 
 	// add search path elements in reverse priority order
 	FS_AddBothGameDirectories(gameName);
@@ -4574,10 +4555,6 @@ void FS_PureServerSetLoadedPaks(const char *pakSums, const char *pakNames)
 	}
 	else
 	{
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-		// reset the value on each disconnect, before fs restarts
-		Cvar_Set("fs_containerName", "");
-#endif
 		if (fs_reordered)
 		{
 			// force a restart to make sure the search order will be correct
@@ -4679,9 +4656,7 @@ void FS_Fileinfo_f(void)
 	Com_Printf("fs_basepath %s\n", fs_basepath->string);
 	Com_Printf("fs_basegame %s\n", fs_basegame->string);
 	Com_Printf("fs_gamedirvar %s\n", fs_gamedirvar->string);
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-	Com_Printf("fs_containerName %s\n", fs_containerName->string);
-#endif
+
 	// static searchpath_t *fs_searchpaths;
 
 	Com_Printf("Total megs read %i\n", fs_readCount / (1024 * 1024)); // total at runtime, isn't reset
@@ -4749,9 +4724,7 @@ void FS_InitFilesystem(void)
 	Com_StartupVariable("fs_basepath");
 	Com_StartupVariable("fs_homepath");
 	Com_StartupVariable("fs_game");
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-	// Com_StartupVariable("fs_containerName"); // enable me if you want to specify startup container name
-#endif
+
 	// ET: Legacy start
 	// if fs_game is not specified, set 'legacy' mod as default fs_game
 	// this 'optimization' grants us 2.60b compatibility w/o deeper changes and users
@@ -5409,21 +5382,6 @@ int FS_CalculateFileSHA1(const char *path, char *hash)
 
 #define WL_MAX_ENTRIES 4096 // see db_mode 1
 #define WL_FILENAME    "etl_pakmeta.txt"
-
-/**
-* @brief FS_InvalidContainerName
-* @param[in] dirname
-* @return qtrue if name is invalid
-*/
-static qboolean FS_InvalidContainerName(const char *dirname)
-{
-	if (*dirname && (strncmp(dirname, FS_CONTAINER_PREFIX, strlen(FS_CONTAINER_PREFIX)) || strchr(dirname, '/') || strchr(dirname, '\\')))
-	{
-		return qtrue;
-	}
-
-	return qfalse;
-}
 
 #ifdef FEATURE_DBMS
 // FIXME: sort header entries
