@@ -38,10 +38,7 @@
 
 #include "q_shared.h"
 #include "qcommon.h"
-
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-#include "./crypto/sha-1/sha1.h"
-#endif
+#include "crypto/sha-1/sha1.h"
 
 #ifdef BUNDLED_MINIZIP
 #    include "unzip.h"
@@ -4122,7 +4119,9 @@ static void FS_AddBothGameDirectories(const char *subpath)
 		{
 			FS_AddGameDirectory(fs_homepath->string, subpath);
 #if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-			if (fs_containerName->string[0])
+			/* only mount container for certain directories */
+			if ((!Q_stricmp(subpath, BASEGAME) || !Q_stricmp(subpath, DEFAULT_MODGAME)) &&
+				fs_containerName->string[0])
 			{
 				char contPath[MAX_OSPATH];
 				Com_sprintf(contPath, sizeof(contPath), "%s%c%s", subpath, PATH_SEP, fs_containerName->string);
@@ -5243,31 +5242,6 @@ qboolean FS_Unzip(const char *fileName, qboolean quiet)
 	return FS_UnzipTo(fileName, newFilePath, quiet);
 }
 
-#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
-
-// File containerization facilities
-
-#define IsPathSep(X) ((X) == '\\' || (X) == '/' || (X) == PATH_SEP)
-#define CONTAINER_DIRNAME "server_"
-/**
-* @brief FS_InvalidContainerName
-* @param[in] dirname
-* @return qtrue if name is invalid
-*/
-static qboolean FS_InvalidContainerName(const char *dirname)
-{
-	if (*dirname && (strncmp(dirname, CONTAINER_DIRNAME, strlen(CONTAINER_DIRNAME)) || strchr(dirname, '/') || strchr(dirname, '\\')))
-	{
-		return qtrue;
-	}
-
-	return qfalse;
-}
-
-void FS_CreateContainerName(const char *id, char *output)
-{
-	Com_sprintf(output, 64, CONTAINER_DIRNAME "%s", id);
-}
 
 /**
 * @brief FS_Basename
@@ -5431,16 +5405,25 @@ int FS_CalculateFileSHA1(const char *path, char *hash)
 	return 0;
 }
 
-typedef struct
-{
-	char name[MAX_OSPATH];
-	char hash[41];
-} pakMetaEntry_t;
+#if defined(FEATURE_PAKISOLATION) && !defined(DEDICATED)
 
-#define MAX_META_ENTRIES 4096 // see db_mode 1
-#define META_FILE_NAME "etl_pakmeta.txt"
-pakMetaEntry_t pakMetaEntries[MAX_META_ENTRIES];
-pakMetaEntry_t *pakMetaEntryMap[MAX_META_ENTRIES];
+#define WL_MAX_ENTRIES 4096 // see db_mode 1
+#define WL_FILENAME    "etl_pakmeta.txt"
+
+/**
+* @brief FS_InvalidContainerName
+* @param[in] dirname
+* @return qtrue if name is invalid
+*/
+static qboolean FS_InvalidContainerName(const char *dirname)
+{
+	if (*dirname && (strncmp(dirname, FS_CONTAINER_PREFIX, strlen(FS_CONTAINER_PREFIX)) || strchr(dirname, '/') || strchr(dirname, '\\')))
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
 
 #ifdef FEATURE_DBMS
 // FIXME: sort header entries
@@ -5455,21 +5438,24 @@ extern qboolean DB_IsWhitelisted(const char *pakName, const char *hash);
 */
 void FS_InitWhitelist()
 {
-	int            i = 0, p = 0, lc = 0, div, len, msec, pakNameHash, fileLen;
-	pakMetaEntry_t *pakEntry;
-	FILE           *file;
-	char           *fileMetaPath, *buf, *line;
+	int       i = 0, p = 0, lc = 0, div, len, msec, fileLen;
+	FILE      *file;
+	char      *fileListPath, *buf, *line;
+	char      pakName[MAX_OSPATH];
+	char      pakHash[41];
+
+#ifndef FEATURE_DBMS
+	// can't store entries, bail out
+	return;
+#endif
 
 	msec = Sys_Milliseconds();
 
-	Com_Memset(pakMetaEntries, 0, MAX_META_ENTRIES);
-	Com_Memset(pakMetaEntryMap, 0, MAX_META_ENTRIES);
-
-	fileMetaPath = va("%s%c%s", fs_homepath->string, PATH_SEP, META_FILE_NAME);
-	file         = Sys_FOpen(fileMetaPath, "rb");
+	fileListPath = va("%s%c%s", fs_homepath->string, PATH_SEP, WL_FILENAME);
+	file         = Sys_FOpen(fileListPath, "rb");
 	if (!file)
 	{
-		Com_Printf(S_COLOR_YELLOW "WARNING: " META_FILE_NAME " was not found\n");
+		Com_DPrintf(S_COLOR_YELLOW "WARNING: " WL_FILENAME " was not found\n");
 		return;
 	}
 
@@ -5477,7 +5463,7 @@ void FS_InitWhitelist()
 	fileLen = ftell(file);
 	if (fileLen == -1)
 	{
-		Com_Printf(S_COLOR_YELLOW "WARNING: unable to get current position in stream of file " META_FILE_NAME "\n");
+		Com_DPrintf(S_COLOR_YELLOW "WARNING: unable to get current position in stream of file " WL_FILENAME "\n");
 		fclose(file);
 		return;
 	}
@@ -5486,13 +5472,13 @@ void FS_InitWhitelist()
 	buf = Com_Allocate(fileLen + 1);
 	if (!buf)
 	{
-		Com_Printf(S_COLOR_YELLOW "WARNING: unable to allocate buffer for " META_FILE_NAME " contents\n");
+		Com_DPrintf(S_COLOR_YELLOW "WARNING: unable to allocate buffer for " WL_FILENAME " contents\n");
 		fclose(file);
 		return;
 	}
 	if (fread(buf, 1, fileLen, file) != fileLen)
 	{
-		Com_Printf(S_COLOR_YELLOW "WARNING: FS_InitWhitelist: short read");
+		Com_DPrintf(S_COLOR_YELLOW "WARNING: FS_InitWhitelist: short read");
 		fclose(file);
 		Com_Dealloc(buf);
 		return;
@@ -5506,8 +5492,9 @@ void FS_InitWhitelist()
 #ifdef FEATURE_DBMS
 	(void) DB_BeginTransaction();
 #endif
-
-	while (i < MAX_META_ENTRIES)
+	// Each file hash entry consists of pk3 name and sha1 hash pair.
+	// Each entry delimited by newline.
+	while (i < WL_MAX_ENTRIES)
 	{
 		if (p >= fileLen)
 		{
@@ -5531,16 +5518,13 @@ void FS_InitWhitelist()
 			}
 			if (div == 0 || div == len || (len - div != 41))
 			{
-				Com_Printf("^1FS_InitWhitelist: Erroneous line %i found, ignoring the rest of file\n", lc);
+				Com_DPrintf("^1FS_InitWhitelist: Erroneous line %i found, ignoring the rest of file\n", lc);
 				break;
 			}
-			pakEntry = &pakMetaEntries[i++];
-			Com_Memcpy(pakEntry->name, line, (size_t)div);
-			Com_Memcpy(pakEntry->hash, line + div + 1, 40);
-			pakNameHash                  = FS_HashFileName(pakEntry->name, MAX_META_ENTRIES);
-			pakMetaEntryMap[pakNameHash] = pakEntry;
+			Com_Memcpy(pakName, line, (size_t)div);
+			Com_Memcpy(pakHash, line + div + 1, 40);
 #ifdef FEATURE_DBMS
-			DB_InsertWhitelist(pakEntry->hash, pakEntry->name);
+			DB_InsertWhitelist(pakName, pakHash);
 #endif
 			line = &buf[p + 1];
 		}
@@ -5560,65 +5544,23 @@ void FS_InitWhitelist()
 
 	Com_Dealloc(buf);
 
-	Com_Printf("%i entries imported from whitelist in %i ms\n", i, (Sys_Milliseconds() - msec));
+	Com_DPrintf("%i entries imported from whitelist in %i ms\n", i, (Sys_Milliseconds() - msec));
 }
 
 /**
-* @brief FS_IsWhitelisted checks whether pak is contained in the list
+* @brief FS_IsWhitelisted checks whether pak is contained in the whitelist db
 * @param[in] pakName the basename of the pak
 * @param[out] hash the sha1 hash of the pak
-* @return qtrue if predicate holds
 */
 qboolean FS_IsWhitelisted(const char *pakName, const char *hash)
 {
-	int            i = 0;
-	int            pakNameHash;
-	pakMetaEntry_t *pakEntry;
-
 #ifdef FEATURE_DBMS
 	if (DB_IsWhitelisted(pakName, hash))
 	{
 		return qtrue;
 	}
 #endif
-
-	pakNameHash = FS_HashFileName(pakName, MAX_META_ENTRIES);
-	pakEntry    = pakMetaEntryMap[pakNameHash];
-
-	if (!pakEntry)
-	{
-		// try manual search on hash miss
-		for (i = 0; i < MAX_META_ENTRIES; i++)
-		{
-			pakEntry = &pakMetaEntries[i];
-
-			// list end, bail out
-			if (!pakEntry->name[0] || !pakEntry->hash[0])
-			{
-				return qfalse;
-			}
-
-			// found it?
-			if (!strcmp(pakEntry->name, pakName))
-			{
-				break;
-			}
-		}
-
-		if (i == MAX_META_ENTRIES)
-		{
-			return qfalse;
-		}
-	}
-
-	// got match?
-	if (!strcmp(pakEntry->hash, hash))
-	{
-		return qtrue;
-	}
 	return qfalse;
 }
 
-#undef MAX_META_ENTRIES
-#undef META_FILE_NAME
 #endif
