@@ -117,7 +117,6 @@ vmCvar_t url;
 
 #ifdef FEATURE_LUA
 vmCvar_t lua_modules;
-vmCvar_t lua_allowedModules;
 #endif
 
 vmCvar_t tvg_protect; // similar to sv_protect game cvar
@@ -204,7 +203,6 @@ tvcvarTable_t gameCvarTable[] =
 
 #ifdef FEATURE_LUA
 	{ &lua_modules,             "lua_modules",             "",                           0,                                           0, qfalse,},
-	{ &lua_allowedModules,      "lua_allowedModules",      "",                           0,                                           0, qfalse,},
 #endif
 
 	{ &tvg_protect,             "tvg_protect",             "0",                          CVAR_ARCHIVE,                                0, qfalse,},
@@ -490,7 +488,7 @@ void TVG_UpdateCvars(void)
 					trap_SendServerCommand(-1, va("print \"[lon]Server:[lof] %s [lon]changed to[lof] %s\n\"", cv->cvarName, cv->vmCvar->string));
 				}
 #ifdef FEATURE_LUA
-				else if (cv->vmCvar == &lua_modules || cv->vmCvar == &lua_allowedModules)
+				else if (cv->vmCvar == &lua_modules)
 				{
 					G_LuaShutdown();
 				}

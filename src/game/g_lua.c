@@ -2089,7 +2089,6 @@ static const luaL_Reg etlib[] =
 qboolean G_LuaRunIsolated(const char *modName)
 {
 	int          freeVM, flen = 0;
-	static char  allowedModules[MAX_CVAR_VALUE_STRING];
 	char         filename[MAX_OSPATH];
 	char         *code, *signature;
 	fileHandle_t f;
@@ -2115,8 +2114,6 @@ qboolean G_LuaRunIsolated(const char *modName)
 	{
 		Q_strcat(filename, sizeof(filename), ".lua");
 	}
-
-	Q_strncpyz(allowedModules, Q_strupr(lua_allowedModules.string), sizeof(allowedModules));
 
 	// try to open lua file
 	flen = trap_FS_FOpenFile(filename, &f, FS_READ);
@@ -2146,41 +2143,32 @@ qboolean G_LuaRunIsolated(const char *modName)
 	trap_FS_FCloseFile(f);
 	signature = G_SHA1(code);
 
-	if (Q_stricmp(lua_allowedModules.string, "") && !strstr(allowedModules, signature))
+	// Init lua_vm_t struct
+	vm = (lua_vm_t *)Com_Allocate(sizeof(lua_vm_t));
+
+	if (vm == NULL)
 	{
-		// don't load disallowed lua modules into vm
-		Com_Dealloc(code); // fixed memory leaking in Lua API - thx ETPub/goesa
-		G_Printf("%s API: %sLua module [%s] [%s] disallowed by ACL\n", LUA_VERSION, S_COLOR_BLUE, filename, signature);
+		G_Error("%s API: %svm memory allocation error for %s data\n", LUA_VERSION, S_COLOR_BLUE, filename);
+	}
+
+	vm->id = -1;
+	Q_strncpyz(vm->file_name, filename, sizeof(vm->file_name));
+	Q_strncpyz(vm->mod_name, "", sizeof(vm->mod_name));
+	Q_strncpyz(vm->mod_signature, signature, sizeof(vm->mod_signature));
+	vm->code      = code;
+	vm->code_size = flen;
+	vm->err       = 0;
+
+	// Start lua virtual machine
+	if (G_LuaStartVM(vm))
+	{
+		vm->id      = freeVM;
+		lVM[freeVM] = vm;
+		return qtrue;
 	}
 	else
 	{
-		// Init lua_vm_t struct
-		vm = (lua_vm_t *)Com_Allocate(sizeof(lua_vm_t));
-
-		if (vm == NULL)
-		{
-			G_Error("%s API: %svm memory allocation error for %s data\n", LUA_VERSION, S_COLOR_BLUE, filename);
-		}
-
-		vm->id = -1;
-		Q_strncpyz(vm->file_name, filename, sizeof(vm->file_name));
-		Q_strncpyz(vm->mod_name, "", sizeof(vm->mod_name));
-		Q_strncpyz(vm->mod_signature, signature, sizeof(vm->mod_signature));
-		vm->code      = code;
-		vm->code_size = flen;
-		vm->err       = 0;
-
-		// Start lua virtual machine
-		if (G_LuaStartVM(vm))
-		{
-			vm->id      = freeVM;
-			lVM[freeVM] = vm;
-			return qtrue;
-		}
-		else
-		{
-			G_LuaStopVM(vm);
-		}
+		G_LuaStopVM(vm);
 	}
 
 	return qfalse;

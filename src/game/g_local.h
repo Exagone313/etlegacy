@@ -2114,7 +2114,6 @@ extern vmCvar_t g_maxWarp;
 
 #ifdef FEATURE_LUA
 extern vmCvar_t lua_modules;
-extern vmCvar_t lua_allowedModules;
 #endif
 
 extern vmCvar_t g_guidCheck;

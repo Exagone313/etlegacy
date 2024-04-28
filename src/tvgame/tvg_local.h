@@ -832,7 +832,6 @@ extern vmCvar_t server_motd5;
 
 #ifdef FEATURE_LUA
 extern vmCvar_t lua_modules;
-extern vmCvar_t lua_allowedModules;
 #endif
 
 extern vmCvar_t tvg_voiceChatsAllowed;
