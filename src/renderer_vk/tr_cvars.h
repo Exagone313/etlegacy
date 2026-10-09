@@ -86,6 +86,8 @@ extern cvar_t *r_bloom_intensity;
 extern cvar_t *r_bloom_modulate;
 extern cvar_t *r_dither;
 extern cvar_t *r_presentBits;
+extern cvar_t *r_renderWidth;
+extern cvar_t *r_renderHeight;
 extern cvar_t *r_renderScale;
 extern cvar_t *r_ext_supersample;
 

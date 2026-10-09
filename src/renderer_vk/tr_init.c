@@ -86,6 +86,19 @@ static void InitOpenGL(void)
 		gls.captureWidth  = glConfig.vidWidth;
 		gls.captureHeight = glConfig.vidHeight;
 
+		// render at a custom resolution and scale it to the window in the final blit
+		if (r_fbo->integer && r_renderScale->integer)
+		{
+			glConfig.vidWidth  = r_renderWidth->integer;
+			glConfig.vidHeight = r_renderHeight->integer;
+
+			// the image keeps its aspect ratio with black bars on the sides
+			if ((r_renderScale->integer - 1) & 1)
+			{
+				glConfig.windowAspect = (float)glConfig.vidWidth / (float)glConfig.vidHeight;
+			}
+		}
+
 		if (r_fbo->integer && r_ext_supersample->integer)
 		{
 			glConfig.vidWidth  *= 2;

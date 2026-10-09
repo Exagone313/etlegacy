@@ -170,6 +170,8 @@ cvar_t *r_bloom_intensity;
 cvar_t *r_bloom_modulate;
 cvar_t *r_dither;
 cvar_t *r_presentBits;
+cvar_t *r_renderWidth;
+cvar_t *r_renderHeight;
 cvar_t *r_renderScale;
 cvar_t *r_ext_supersample;
 
@@ -409,8 +411,22 @@ void R_Register(void)
 	ri.Cvar_CheckRange(r_presentBits, 16, 30, qtrue);
 	ri.Cvar_SetDescription(r_presentBits, "Color bits used for presentation surfaces, requires r_fbo 1");
 
-	r_renderScale = ri.Cvar_Get("r_renderScale", "0", CVAR_ROM);
-	ri.Cvar_SetDescription(r_renderScale, "Custom render resolution scaling mode (not supported yet)");
+	r_renderWidth = ri.Cvar_Get("r_renderWidth", "800", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_renderWidth, 96, 8192, qtrue);
+	ri.Cvar_SetDescription(r_renderWidth, "Width of the custom render resolution used with r_renderScale");
+
+	r_renderHeight = ri.Cvar_Get("r_renderHeight", "600", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_renderHeight, 72, 8192, qtrue);
+	ri.Cvar_SetDescription(r_renderHeight, "Height of the custom render resolution used with r_renderScale");
+
+	r_renderScale = ri.Cvar_Get("r_renderScale", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_renderScale, 0, 4, qtrue);
+	ri.Cvar_SetDescription(r_renderScale, "Scaling mode of the custom render resolution r_renderWidth x r_renderHeight, requires r_fbo 1:\n"
+	                       " 0 - disabled\n"
+	                       " 1 - nearest filtering, stretch to full size\n"
+	                       " 2 - nearest filtering, preserve aspect ratio (black bars on sides)\n"
+	                       " 3 - linear filtering, stretch to full size\n"
+	                       " 4 - linear filtering, preserve aspect ratio (black bars on sides)");
 
 	r_ext_supersample = ri.Cvar_Get("r_ext_supersample", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);
 	ri.Cvar_CheckRange(r_ext_supersample, 0, 1, qtrue);
