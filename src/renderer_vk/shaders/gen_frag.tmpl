@@ -12,6 +12,11 @@
 #define USE_CL1
 #endif
 
+// ET global distance fog (linear/exp), uses the fog parameters of the uniform
+#ifdef USE_GLOBAL_FOG
+#define USE_FOG
+#endif
+
 #if defined (USE_FOG) || defined (USE_ENT_COLOR)
 layout(set = 0, binding = 0) uniform UBO {
 	// light/env parameters:
@@ -42,7 +47,7 @@ layout(set = 2, binding = 0) uniform sampler2D texture1;
 #ifdef USE_TX2
 layout(set = 3, binding = 0) uniform sampler2D texture2;
 #endif
-#ifdef USE_FOG
+#if defined(USE_FOG) && !defined(USE_GLOBAL_FOG)
 layout(set = 4, binding = 0) uniform sampler2D fog_texture;
 #endif
 
@@ -70,7 +75,9 @@ layout(location = 2) centroid in vec2 frag_tex_coord1;
 #ifdef USE_TX2
 layout(location = 3) centroid in vec2 frag_tex_coord2;
 #endif
-#ifdef USE_FOG
+#ifdef USE_GLOBAL_FOG
+layout(location = 4) in float fog_depth;
+#elif defined(USE_FOG)
 layout(location = 4) in vec2 fog_tex_coord;
 #endif
 
@@ -105,6 +112,10 @@ layout (constant_id = 9) const float identity_alpha = 1.0;
 layout (constant_id = 10) const int acff = 0; // NONE, RGB, RGBA, ALPHA
 #endif
 
+#ifdef USE_GLOBAL_FOG
+layout (constant_id = 11) const int fog_mode = 1; // 1: GL_LINEAR, 2: GL_EXP
+#endif
+
 #ifdef USE_ATEST
 #if 0
 float CorrectAlpha(float threshold, float alpha, vec2 tc)
@@ -121,7 +132,7 @@ float CorrectAlpha(float threshold, float alpha, vec2 tc)
 #endif
 
 void main() {
-#ifdef USE_FOG
+#if defined(USE_FOG) && !defined(USE_GLOBAL_FOG)
 	vec4 fog = texture(fog_texture, fog_tex_coord);
 #endif
 
@@ -482,7 +493,16 @@ void main() {
 	base = color0;
 #endif
 
-#ifdef USE_FOG
+#ifdef USE_GLOBAL_FOG
+	// same as the fixed-function OpenGL fog: fogDepthVector holds end, 1/(end-start) and density
+	float fog_factor;
+	if ( fog_mode == 2 ) {
+		fog_factor = exp( -fogDepthVector.z * fog_depth );
+	} else {
+		fog_factor = ( fogDepthVector.x - fog_depth ) * fogDepthVector.y;
+	}
+	base.rgb = mix( fogColor.rgb, base.rgb, clamp( fog_factor, 0.0, 1.0 ) );
+#elif defined(USE_FOG)
 	if ( acff == 1 ) {
 		// ACFF_RGB
 		base.rgb = base.rgb * (1.0 - fog.w);

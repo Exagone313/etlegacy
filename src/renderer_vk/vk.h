@@ -227,6 +227,7 @@ typedef struct {
 	Vk_Primitive_Topology primitives;
 	int line_width;
 	int fog_stage; // off, fog-in / fog-out
+	int global_fog; // ET distance fog: 0 off, 1 GL_LINEAR, 2 GL_EXP
 	int abs_light;
 	int allow_discard;
 	int acff; // none, rgb, rgba, alpha
@@ -347,6 +348,7 @@ void vk_draw_indexed( uint32_t indexCount, uint32_t firstIndex );
 void vk_reset_descriptor( int index );
 void vk_update_descriptor( int index, VkDescriptorSet descriptor );
 void vk_update_descriptor_offset( int index, uint32_t offset );
+void vk_push_uniform( const vkUniform_t *uniform );
 
 void vk_update_post_process_pipelines( void );
 
@@ -392,6 +394,9 @@ typedef struct vk_tess_s {
 	uint32_t num_indexes; // value from most recent vk_bind_index() call
 
 	VkRect2D scissor_rect;
+
+	vkUniform_t	last_uniform;	// most recent vk_push_uniform() data
+	qboolean	uniform_pushed;	// last_uniform is valid for this frame
 } vk_tess_t;
 
 
@@ -532,6 +537,7 @@ typedef struct {
 			VkShaderModule ident1[2][2][2]; // tx[0,1], env0[0,1] fog[0,1]
 			VkShaderModule fixed[2][2][2];  // tx[0,1], env0[0,1] fog[0,1]
 			VkShaderModule light[2];        // fog[0,1]
+			VkShaderModule gfog[2];         // tx[0,1], ET distance fog
 		} vert;
 		struct {
 			VkShaderModule gen0_df;
@@ -540,6 +546,7 @@ typedef struct {
 			VkShaderModule fixed[2][2];  // tx[0,1], fog[0,1]
 			VkShaderModule ent[1][2];    // tx[0], fog[0,1]
 			VkShaderModule light[2][2];  // linear[0,1] fog[0,1]
+			VkShaderModule gfog[2];      // tx[0,1], ET distance fog
 		} frag;
 
 		VkShaderModule color_fs;

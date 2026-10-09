@@ -514,6 +514,7 @@ void RB_RenderFlares(void)
 	flare_t  *f;
 	flare_t  **prev;
 	qboolean draw;
+	float    modelview[16];
 
 	if (!r_flares->integer)
 	{
@@ -566,6 +567,15 @@ void RB_RenderFlares(void)
 		return;
 	}
 
+	// flares are drawn in window coordinates with an identity modelview,
+	// like in OpenGL this keeps the distance fog off them
+	Com_Memcpy(modelview, vk_world.modelview_transform, sizeof(modelview));
+	Com_Memset(vk_world.modelview_transform, 0, sizeof(vk_world.modelview_transform));
+	vk_world.modelview_transform[0]  = 1.0f;
+	vk_world.modelview_transform[5]  = 1.0f;
+	vk_world.modelview_transform[10] = 1.0f;
+	vk_world.modelview_transform[15] = 1.0f;
+
 	// window coordinates projection, z = 0 maps to the near plane (reversed depth)
 	vk_update_mvp(R_FlareOrtho(backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
 	                           backEnd.viewParms.viewportY, backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight, 1.0f, 0.0f));
@@ -579,5 +589,6 @@ void RB_RenderFlares(void)
 	}
 
 	// restore the view projection
+	Com_Memcpy(vk_world.modelview_transform, modelview, sizeof(modelview));
 	vk_update_mvp(NULL);
 }

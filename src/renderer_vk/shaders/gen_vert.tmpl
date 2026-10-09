@@ -12,6 +12,11 @@
 #define USE_CL1
 #endif
 
+// ET global distance fog (linear/exp), uses the fog parameters of the uniform
+#ifdef USE_GLOBAL_FOG
+#define USE_FOG
+#endif
+
 // 64 bytes
 layout(push_constant) uniform Transform {
 	mat4 mvp;
@@ -85,7 +90,9 @@ layout(location = 2) out vec2 frag_tex_coord1;
 layout(location = 3) out vec2 frag_tex_coord2;
 #endif
 
-#ifdef USE_FOG
+#ifdef USE_GLOBAL_FOG
+layout(location = 4) out float fog_depth;
+#elif defined(USE_FOG)
 layout(location = 4) out vec2 fog_tex_coord;
 #endif
 
@@ -127,7 +134,10 @@ void main() {
 	frag_tex_coord2 = in_tex_coord2;
 #endif
 
-#ifdef USE_FOG
+#ifdef USE_GLOBAL_FOG
+	// eye-space depth, fogDistanceVector holds the negated third row of the modelview matrix
+	fog_depth = abs(dot(in_position, fogDistanceVector.xyz) + fogDistanceVector.w);
+#elif defined(USE_FOG)
 	float s = dot(in_position, fogDistanceVector.xyz) + fogDistanceVector.w;
 	float t = dot(in_position, fogDepthVector.xyz) + fogDepthVector.w;
 

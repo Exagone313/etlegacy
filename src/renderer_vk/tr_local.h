@@ -2340,7 +2340,8 @@ void R_AddMDCSurfaces(trRefEntity_t *ent);
 extern glfog_t     glfogsettings[NUM_FOGS];     ///< [0] never used (FOG_NONE)
 extern glfogType_t glfogNum;                    ///< fog type to use (from the fog_t enum list)
 
-//extern qboolean fogIsOn;
+extern qboolean fogIsOn;
+extern glfog_t   *fogCurrent;                   ///< parameters of the fog enabled by R_Fog()
 
 extern void R_FogOff(void);
 extern void R_FogOn(void);

@@ -2969,6 +2969,16 @@ static void vk_create_shader_modules( void )
 	SET_OBJECT_NAME( vk.modules.frag.light[1][0], "linear light fragment module", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT );
 	SET_OBJECT_NAME( vk.modules.frag.light[1][1], "linear light fog fragment module", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT );
 
+	// ET distance fog modules
+	vk.modules.vert.gfog[0] = SHADER_MODULE( vert_tx0_gfog );
+	vk.modules.vert.gfog[1] = SHADER_MODULE( vert_tx1_gfog );
+	vk.modules.frag.gfog[0] = SHADER_MODULE( frag_tx0_gfog );
+	vk.modules.frag.gfog[1] = SHADER_MODULE( frag_tx1_gfog );
+	SET_OBJECT_NAME( vk.modules.vert.gfog[0], "single-texture distance fog vertex module", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT );
+	SET_OBJECT_NAME( vk.modules.vert.gfog[1], "double-texture distance fog vertex module", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT );
+	SET_OBJECT_NAME( vk.modules.frag.gfog[0], "single-texture distance fog fragment module", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT );
+	SET_OBJECT_NAME( vk.modules.frag.gfog[1], "double-texture distance fog fragment module", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT );
+
 	vk.modules.color_fs = SHADER_MODULE( color_frag_spv );
 	vk.modules.color_vs = SHADER_MODULE( color_vert_spv );
 
@@ -4690,6 +4700,13 @@ void vk_shutdown( refShutdownCode_t code )
 
 	qvkDestroyShaderModule( vk.device, vk.modules.frag.gen0_df, NULL );
 
+	for ( i = 0; i < 2; i++ ) {
+		qvkDestroyShaderModule( vk.device, vk.modules.vert.gfog[i], NULL );
+		qvkDestroyShaderModule( vk.device, vk.modules.frag.gfog[i], NULL );
+		vk.modules.vert.gfog[i] = VK_NULL_HANDLE;
+		vk.modules.frag.gfog[i] = VK_NULL_HANDLE;
+	}
+
 	qvkDestroyShaderModule( vk.device, vk.modules.color_fs, NULL );
 	qvkDestroyShaderModule( vk.device, vk.modules.color_vs, NULL );
 
@@ -5660,8 +5677,8 @@ VkPipeline create_pipeline( const Vk_Pipeline_Def *def, renderPass_t renderPassI
 	VkShaderModule *vs_module = NULL;
 	VkShaderModule *fs_module = NULL;
 	//int32_t vert_spec_data[1]; // clippping
-	floatint_t frag_spec_data[11]; // 0:alpha-test-func, 1:alpha-test-value, 2:depth-fragment, 3:alpha-to-coverage, 4:color_mode, 5:abs_light, 6:multitexture mode, 7:discard mode, 8: ident.color, 9 - ident.alpha, 10 - acff
-	VkSpecializationMapEntry spec_entries[12];
+	floatint_t frag_spec_data[12]; // 0:alpha-test-func, 1:alpha-test-value, 2:depth-fragment, 3:alpha-to-coverage, 4:color_mode, 5:abs_light, 6:multitexture mode, 7:discard mode, 8: ident.color, 9 - ident.alpha, 10 - acff, 11 - fog mode
+	VkSpecializationMapEntry spec_entries[13];
 	//VkSpecializationInfo vert_spec_info;
 	VkSpecializationInfo frag_spec_info;
 	VkPipelineVertexInputStateCreateInfo vertex_input_state;
@@ -5876,6 +5893,23 @@ VkPipeline create_pipeline( const Vk_Pipeline_Def *def, renderPass_t renderPassI
 		}
 	}
 
+	if ( def->global_fog ) {
+		// ET distance fog, only for the generic single and double texture types
+		switch ( def->shader_type ) {
+			case TYPE_SIGNLE_TEXTURE:
+				vs_module = &vk.modules.vert.gfog[0];
+				fs_module = &vk.modules.frag.gfog[0];
+				break;
+			case TYPE_MULTI_TEXTURE_MUL2:
+			case TYPE_MULTI_TEXTURE_ADD2_1_1:
+				vs_module = &vk.modules.vert.gfog[1];
+				fs_module = &vk.modules.frag.gfog[1];
+				break;
+			default:
+				break;
+		}
+	}
+
 	set_shader_stage_desc(shader_stages+0, VK_SHADER_STAGE_VERTEX_BIT, *vs_module, "main");
 	set_shader_stage_desc(shader_stages+1, VK_SHADER_STAGE_FRAGMENT_BIT, *fs_module, "main");
 
@@ -6019,6 +6053,8 @@ VkPipeline create_pipeline( const Vk_Pipeline_Def *def, renderPass_t renderPassI
 		frag_spec_data[10].i = 0;
 	}
 
+	frag_spec_data[11].i = def->global_fog;
+
 	//
 	// vertex module specialization data
 	//
@@ -6083,9 +6119,13 @@ VkPipeline create_pipeline( const Vk_Pipeline_Def *def, renderPass_t renderPassI
 	spec_entries[11].offset = 10 * sizeof( int32_t );
 	spec_entries[11].size = sizeof( int32_t );
 
-	frag_spec_info.mapEntryCount = 11;
+	spec_entries[12].constantID = 11; // fog mode
+	spec_entries[12].offset = 11 * sizeof( int32_t );
+	spec_entries[12].size = sizeof( int32_t );
+
+	frag_spec_info.mapEntryCount = 12;
 	frag_spec_info.pMapEntries = spec_entries + 1;
-	frag_spec_info.dataSize = sizeof( int32_t ) * 11;
+	frag_spec_info.dataSize = sizeof( int32_t ) * 12;
 	frag_spec_info.pData = &frag_spec_data[0];
 	shader_stages[1].pSpecializationInfo = &frag_spec_info;
 
@@ -7114,6 +7154,35 @@ void vk_update_descriptor_offset( int index, uint32_t offset )
 }
 
 
+void vk_push_uniform( const vkUniform_t *uniform )
+{
+	uint32_t offset;
+
+	// same data as the previous push in this frame, keep the bound descriptor
+	if ( vk.cmd->uniform_pushed && !memcmp( &vk.cmd->last_uniform, uniform, sizeof( *uniform ) ) ) {
+		return;
+	}
+
+	offset = PAD( vk.cmd->vertex_buffer_offset, vk.uniform_alignment );
+
+	if ( offset + vk.uniform_item_size > vk.geometry_buffer_size ) {
+		// schedule geometry buffer resize, the draw is skipped by vk_draw_geometry()
+		vk.geometry_buffer_size_new = log2pad( offset + vk.uniform_item_size, 1 );
+		return;
+	}
+
+	Com_Memcpy( vk.cmd->vertex_buffer_ptr + offset, uniform, sizeof( *uniform ) );
+	vk.cmd->vertex_buffer_offset = offset + vk.uniform_item_size;
+
+	vk.cmd->last_uniform = *uniform;
+	vk.cmd->uniform_pushed = qtrue;
+
+	vk_reset_descriptor( VK_DESC_UNIFORM );
+	vk_update_descriptor( VK_DESC_UNIFORM, vk.cmd->uniform_descriptor );
+	vk_update_descriptor_offset( VK_DESC_UNIFORM, offset );
+}
+
+
 void vk_bind_descriptor_sets( void )
 {
 	uint32_t offsets[2], offset_count;
@@ -7464,6 +7533,7 @@ _retry:
 	// dynamic vertex buffer layout
 	vk.cmd->uniform_read_offset = 0;
 	vk.cmd->vertex_buffer_offset = 0;
+	vk.cmd->uniform_pushed = qfalse;
 	Com_Memset( vk.cmd->buf_offset, 0, sizeof( vk.cmd->buf_offset ) );
 	Com_Memset( vk.cmd->vbo_offset, 0, sizeof( vk.cmd->vbo_offset ) );
 	vk.cmd->curr_index_buffer = VK_NULL_HANDLE;

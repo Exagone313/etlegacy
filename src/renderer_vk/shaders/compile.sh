@@ -116,4 +116,11 @@ build frag gen_frag.tmpl frag_tx2_fog -DUSE_TX2 -DUSE_FOG
 build frag gen_frag.tmpl frag_tx2_cl -DUSE_CL2 -DUSE_TX2
 build frag gen_frag.tmpl frag_tx2_cl_fog -DUSE_CL2 -DUSE_TX2 -DUSE_FOG
 
+# ET global distance fog variants
+
+build vert gen_vert.tmpl vert_tx0_gfog -DUSE_GLOBAL_FOG
+build vert gen_vert.tmpl vert_tx1_gfog -DUSE_TX1 -DUSE_GLOBAL_FOG
+build frag gen_frag.tmpl frag_tx0_gfog -DUSE_ATEST -DUSE_GLOBAL_FOG
+build frag gen_frag.tmpl frag_tx1_gfog -DUSE_TX1 -DUSE_GLOBAL_FOG
+
 echo "Generated $OUTF"

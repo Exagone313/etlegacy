@@ -194,6 +194,44 @@ void RB_ClearPipelineCache(void)
 }
 
 /**
+ * @brief Upload the parameters of the enabled distance fog
+ * @return 0 when no fog applies, else the fog mode of the pipeline (1 GL_LINEAR, 2 GL_EXP)
+ */
+static int RB_SetupFogUniform(void)
+{
+	const glfog_t *fog = fogCurrent;
+	const float   *m   = vk_world.modelview_transform;
+	vkUniform_t   uniform;
+	float         end;
+
+	if (!fogIsOn || !fog || backEnd.projection2D)
+	{
+		return 0;
+	}
+
+	Com_Memset(&uniform, 0, sizeof(uniform));
+
+	// eye-space depth of the vertexes, like the fixed-function OpenGL fog
+	Vector4Set(uniform.fogDistanceVector, -m[2], -m[6], -m[10], -m[14]);
+	Vector4Copy(fog->color, uniform.fogColor);
+
+	if (fog->mode == GL_EXP)
+	{
+		uniform.fogDepthVector[2] = fog->density;
+		vk_push_uniform(&uniform);
+		return 2;
+	}
+
+	// allow override for helping level designers test fog distances
+	end = (r_zFar->value != 0.f) ? r_zFar->value : fog->end;
+
+	uniform.fogDepthVector[0] = end;
+	uniform.fogDepthVector[1] = (end != fog->start) ? 1.0f / (end - fog->start) : 1.0e6f;
+	vk_push_uniform(&uniform);
+	return 1;
+}
+
+/**
  * @brief Find the pipeline matching the current GL-like state
  * @param[in] numTextures 1 or 2, the second texture is combined according to the texture env of unit 1
  * @param[in] primitives
@@ -219,6 +257,7 @@ uint32_t RB_StatePipeline(int numTextures, Vk_Primitive_Topology primitives)
 	def.polygon_offset = glState.polygonOffset;
 	def.mirror         = (!backEnd.projection2D && backEnd.viewParms.isMirror) ? qtrue : qfalse;
 	def.primitives     = primitives;
+	def.global_fog     = RB_SetupFogUniform();
 
 	return RB_FindPipeline(&def);
 }

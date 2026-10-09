@@ -267,4 +267,18 @@ for %%f in (*.frag) do (
 "%cl%" -S frag -V -o "%tmpf%" gen_frag.tmpl -DUSE_CL2 -DUSE_TX2 -DUSE_FOG
 "%bh%" "%tmpf%" %outf% frag_tx2_cl_fog
 
+@rem ET global distance fog variants
+
+"%cl%" -S vert -V -o "%tmpf%" gen_vert.tmpl -DUSE_GLOBAL_FOG
+"%bh%" "%tmpf%" %outf% vert_tx0_gfog
+
+"%cl%" -S vert -V -o "%tmpf%" gen_vert.tmpl -DUSE_TX1 -DUSE_GLOBAL_FOG
+"%bh%" "%tmpf%" %outf% vert_tx1_gfog
+
+"%cl%" -S frag -V -o "%tmpf%" gen_frag.tmpl -DUSE_ATEST -DUSE_GLOBAL_FOG
+"%bh%" "%tmpf%" %outf% frag_tx0_gfog
+
+"%cl%" -S frag -V -o "%tmpf%" gen_frag.tmpl -DUSE_TX1 -DUSE_GLOBAL_FOG
+"%bh%" "%tmpf%" %outf% frag_tx1_gfog
+
 del /Q "%tmpf%"

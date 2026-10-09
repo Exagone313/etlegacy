@@ -60,6 +60,7 @@ surfaceType_t entitySurface = SF_ENTITY;
 glfog_t     glfogsettings[NUM_FOGS];
 glfogType_t glfogNum = FOG_NONE;
 qboolean    fogIsOn  = qfalse;
+glfog_t     *fogCurrent = NULL;
 
 /**
  * @brief R_Fog
@@ -93,8 +94,9 @@ void R_Fog(glfog_t *curfog)
 		curfog->mode = GL_LINEAR;
 	}
 
-	// FIXME: distance fog is not implemented in the Vulkan renderer yet,
-	// only the fog state is tracked
+	// the fog is applied by the pipelines selected in RB_StatePipeline()
+	fogCurrent = curfog;
+
 	R_FogOn();
 }
 
