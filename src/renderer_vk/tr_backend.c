@@ -1557,6 +1557,9 @@ const void *RB_SwapBuffers(const void *data)
 
 	vk_present_frame();
 
+	// no buffer swap there with Vulkan, but it applies r_fullscreen changes
+	ri.GLimp_SwapFrame();
+
 	backEnd.projection2D = qfalse;
 	backEnd.doneSurfaces = qfalse;
 	backEnd.doneBloom    = qfalse;
