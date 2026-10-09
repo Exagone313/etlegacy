@@ -545,11 +545,12 @@ static void ParseTriSurf(dsurface_t *ds, drawVert_t *verts, msurface_t *surf, in
 	tri = R_GetSurfMemory(sizeof(*tri) + numVerts * sizeof(tri->verts[0])
 	                      + numIndexes * sizeof(tri->indexes[0]));
 
-	tri->surfaceType = SF_TRIANGLES;
-	tri->numVerts    = numVerts;
-	tri->numIndexes  = numIndexes;
-	tri->verts       = ( drawVert_t * )(tri + 1);
-	tri->indexes     = ( int * )(tri->verts + tri->numVerts);
+	tri->surfaceType  = SF_TRIANGLES;
+	tri->vboItemIndex = 0;
+	tri->numVerts     = numVerts;
+	tri->numIndexes   = numIndexes;
+	tri->verts        = ( drawVert_t * )(tri + 1);
+	tri->indexes      = ( int * )(tri->verts + tri->numVerts);
 
 	surf->data = (surfaceType_t *)tri;
 
@@ -2705,6 +2706,10 @@ void RE_LoadWorldMap(const char *name)
 	Ren_UpdateScreen();
 	R_LoadLightGrid(&header->lumps[LUMP_LIGHTGRID]);
 	Ren_UpdateScreen();
+
+	// static world surfaces, the surfaces are tesselated with the backend tess
+	R_IssuePendingRenderCommands();
+	R_BuildWorldVBO(s_worldData.surfaces, s_worldData.numsurfaces);
 
 	s_worldData.dataSize = (byte *)ri.Hunk_Alloc(0, h_low) - startMarker;
 

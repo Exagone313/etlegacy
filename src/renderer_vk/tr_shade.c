@@ -296,6 +296,13 @@ void RB_BeginSurface(shader_t *shader, int fogNum)
 	{
 		tess.shaderTime = tess.shader->clampTime;
 	}
+
+	// static world surfaces can be drawn from the VBO, except with debug drawing
+	// which needs the tesselated vertexes
+	tess.vboIndex = 0;
+	tess.allowVBO = (state->isStaticShader && !shader->remappedShader
+	                 && !r_showTris->integer && !r_showNormals->integer
+	                 && !r_debugShaderSurfaceFlags->integer) ? qtrue : qfalse;
 }
 
 /**
@@ -872,6 +879,15 @@ static void RB_FogPass(void)
 
 	fog = tr.world->fogs + tess.fogNum;
 
+	if (tess.vboIndex)
+	{
+		RB_DrawFogPassVBO(tess.shader->fogPass == FP_EQUAL
+		                  ? (GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHFUNC_EQUAL)
+		                  : (GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA),
+		                  fog->shader->fogParms.colorInt);
+		return;
+	}
+
 	for (i = 0; i < tess.numVertexes; i++)
 	{
 		*( int * )&tess.svars.colors[i] = fog->shader->fogParms.colorInt;
@@ -1204,6 +1220,18 @@ static void ComputeColors(shaderStage_t *pStage)
 	}
 }
 
+static void ComputeTexCoords(shaderStage_t *pStage);
+
+/**
+ * @brief Compute the colors and texture coordinates of a stage, used to fill the static VBO
+ * @param[in] pStage
+ */
+void RB_ComputeStageVars(shaderStage_t *pStage)
+{
+	ComputeColors(pStage);
+	ComputeTexCoords(pStage);
+}
+
 /**
  * @brief ComputeTexCoords
  * @param[in] pStage
@@ -1411,8 +1439,16 @@ static void RB_IterateStagesGeneric(shaderCommands_t *input)
 			break;
 		}
 
-		ComputeColors(pStage);
-		ComputeTexCoords(pStage);
+		if (tess.vboIndex)
+		{
+			// colors and texture coordinates are in the VBO
+			tess.vboStage = stage;
+		}
+		else
+		{
+			ComputeColors(pStage);
+			ComputeTexCoords(pStage);
+		}
 
 		skipRemainingStages = DebugShaderSurfaceFlags(input);
 
@@ -1523,7 +1559,15 @@ void RB_StageIteratorGeneric(void)
 	shaderCommands_t *input  = &tess;
 	shader_t         *shader = input->shader;
 
-	RB_DeformTessGeometry();
+	if (tess.vboIndex)
+	{
+		VBO_PrepareQueues();
+		tess.vboStage = 0;
+	}
+	else
+	{
+		RB_DeformTessGeometry();
+	}
 
 	Ren_LogComment("--- RB_StageIteratorGeneric( %s ) ---\n", tess.shader->name);
 
@@ -1613,6 +1657,7 @@ void RB_EndSurface(void)
 	// for debugging of sort order issues, stop rendering after a given sort value
 	if (r_debugSort->integer && r_debugSort->integer < tess.shader->sort)
 	{
+		tess.vboIndex = 0;
 		return;
 	}
 
@@ -1638,6 +1683,7 @@ void RB_EndSurface(void)
 	// clear shader so we can tell we don't have any unclosed surfaces
 	tess.numIndexes  = 0;
 	tess.numVertexes = 0;
+	tess.vboIndex    = 0;
 
 	Ren_LogComment("----------\n");
 }

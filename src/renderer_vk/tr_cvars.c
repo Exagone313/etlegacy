@@ -147,6 +147,7 @@ cvar_t *r_cacheGathering;
 cvar_t *r_bonesDebug;
 
 cvar_t *r_fbo;
+cvar_t *r_vbo;
 
 cvar_t *r_wolfFog;
 
@@ -261,6 +262,10 @@ void R_Register(void)
 	r_bonesDebug     = ri.Cvar_Get("r_bonesDebug", "0", CVAR_CHEAT);
 
 	r_fbo = ri.Cvar_Get("r_fbo", "1", CVAR_LATCH);
+
+	r_vbo = ri.Cvar_Get("r_vbo", "1", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_vbo, 0, 1, qtrue);
+	ri.Cvar_SetDescription(r_vbo, "Keep the static world surfaces in a vertex buffer in GPU memory");
 
 	r_wolfFog = ri.Cvar_Get("r_wolffog", "1", CVAR_ARCHIVE);
 

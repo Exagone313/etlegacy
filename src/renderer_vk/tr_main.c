@@ -1312,6 +1312,7 @@ static qboolean SurfIsOffscreen(const drawSurf_t *drawSurf, vec4_t clipDest[128]
 
 	R_DecomposeSort(drawSurf->sort, &entityNum, &shader, &fogNum, &frontFace, &dlighted);
 	RB_BeginSurface(shader, fogNum);
+	tess.allowVBO = qfalse; // the points of the surface are needed
 	rb_surfaceTable[*drawSurf->surface](drawSurf->surface);
 
 	etl_assert(tess.numVertexes < 128);

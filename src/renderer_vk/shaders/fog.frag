@@ -21,33 +21,25 @@ layout(set = 0, binding = 0) uniform UBO {
 
 layout(set = 2, binding = 0) uniform sampler2D fog_texture;
 
-//layout(location = 0) in vec4 frag_color;
-//layout(location = 1) in vec2 frag_tex_coord0;
-//layout(location = 2) in vec2 frag_tex_coord1;
-//layout(location = 3) in vec2 frag_tex_coord2;
 layout(location = 4) in vec2 fog_tex_coord;
+layout(location = 5) in float fog_depth;
 
 layout(location = 0) out vec4 out_color;
 
-//layout(constant_id = 0) const int alpha_test_func = 0;
-
+// ET fog volume pass: lightColor and lightVector hold the global distance fog color and
+// its parameters (end, 1/(end-start), density, mode: 0 none, 1 GL_LINEAR, 2 GL_EXP)
 void main() {
-    //vec4 base = frag_color * texture(texture0, frag_tex_coord0);
-	//vec4 fog = texture(fog_texture, fog_tex_coord);
+	vec4 color = texture(fog_texture, fog_tex_coord) * fogColor;
 
-    //if (alpha_test_func == 1) {
-    //    if (base.a == 0.0f) discard;
-    //} else if (alpha_test_func == 2) {
-    //    if (base.a >= 0.5f) discard;
-    //} else if (alpha_test_func == 3) {
-    //    if (base.a < 0.5f) discard;
-    //}
+	if ( lightVector.w != 0.0 ) {
+		float fog_factor;
+		if ( lightVector.w == 2.0 ) {
+			fog_factor = exp( -lightVector.z * fog_depth );
+		} else {
+			fog_factor = ( lightVector.x - fog_depth ) * lightVector.y;
+		}
+		color.rgb = mix( lightColor.rgb, color.rgb, clamp( fog_factor, 0.0, 1.0 ) );
+	}
 
-	//fog = fog * fogColor;
-
-	//out_color = mix( base, fog, fog.a );
-
-	vec4 fog = texture(fog_texture, fog_tex_coord);
-//	fog.a = 1.0;
-	out_color = fog * fogColor;
+	out_color = color;
 }

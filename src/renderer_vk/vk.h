@@ -71,6 +71,8 @@ typedef enum {
 
 #define USE_REVERSED_DEPTH
 
+#define USE_VBO	// static world surfaces in device-local memory, see tr_vbo.c
+
 //#define USE_UPLOAD_QUEUE
 
 #define VK_NUM_BLOOM_PASSES 4

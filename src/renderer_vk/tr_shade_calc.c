@@ -981,34 +981,37 @@ TEX COORDS
 */
 
 /**
- * @brief To do the clipped fog plane really correctly, we should use
- * projected textures, but I don't trust the drivers and it
- * doesn't fit our shader data.
+ * @brief Compute the fog volume texture coordinate vectors of the current surface
  *
- * @param[in,out] texCoords
+ * s = DotProduct(xyz, distanceVector) + distanceVector[3]
+ * t = DotProduct(xyz, depthVector) + depthVector[3] + tOffset
+ *
+ * @param[out] distanceVector
+ * @param[out] depthVector
+ * @param[out] tOffset
  */
-void RB_CalcFogTexCoords(float *texCoords)
+void RB_CalcFogVectors(vec4_t distanceVector, vec4_t depthVector, float *tOffset)
 {
-	int      i;
-	float    *v;
-	fog_t    *fog = tr.world->fogs + tess.fogNum;    // get fog stuff
-	vec3_t   local, viewOrigin;
-	vec4_t   fogSurface, fogDistanceVector, fogDepthVector = { 0, 0, 0, 0 };
+	fog_t    *fog    = tr.world->fogs + tess.fogNum; // get fog stuff
 	bmodel_t *bmodel = tr.world->bmodels + fog->modelNum; // get fog stuff
+	vec3_t   local, viewOrigin;
+	vec4_t   fogSurface;
+
+	Vector4Set(depthVector, 0, 0, 0, 0);
 
 	// all fogging distance is based on world Z units
 	VectorSubtract(backEnd.orientation.origin, backEnd.viewParms.orientation.origin, local);
 	//VectorSubtract( local, bmodel->origin, local );
-	fogDistanceVector[0] = -backEnd.orientation.modelMatrix[2];
-	fogDistanceVector[1] = -backEnd.orientation.modelMatrix[6];
-	fogDistanceVector[2] = -backEnd.orientation.modelMatrix[10];
-	fogDistanceVector[3] = DotProduct(local, backEnd.viewParms.orientation.axis[0]);
+	distanceVector[0] = -backEnd.orientation.modelMatrix[2];
+	distanceVector[1] = -backEnd.orientation.modelMatrix[6];
+	distanceVector[2] = -backEnd.orientation.modelMatrix[10];
+	distanceVector[3] = DotProduct(local, backEnd.viewParms.orientation.axis[0]);
 
 	// scale the fog vectors based on the fog's thickness
-	fogDistanceVector[0] *= fog->shader->fogParms.tcScale * 1.0f;
-	fogDistanceVector[1] *= fog->shader->fogParms.tcScale * 1.0f;
-	fogDistanceVector[2] *= fog->shader->fogParms.tcScale * 1.0f;
-	fogDistanceVector[3] *= fog->shader->fogParms.tcScale * 1.0f;
+	distanceVector[0] *= fog->shader->fogParms.tcScale * 1.0f;
+	distanceVector[1] *= fog->shader->fogParms.tcScale * 1.0f;
+	distanceVector[2] *= fog->shader->fogParms.tcScale * 1.0f;
+	distanceVector[3] *= fog->shader->fogParms.tcScale * 1.0f;
 
 	// offset view origin by fog brush origin (fixme: really necessary?)
 	//VectorSubtract( backEnd.orientation.viewOrigin, bmodel->origin, viewOrigin );
@@ -1021,66 +1024,63 @@ void RB_CalcFogTexCoords(float *texCoords)
 	// general fog case
 	if (fog->originalBrushNumber >= 0)
 	{
-		float    s, t;
-		float    eyeT;
-		qboolean eyeInside;
+		float eyeT;
 
 		// rotate the gradient vector for this orientation
 		if (fog->hasSurface)
 		{
-			fogDepthVector[0] = fogSurface[0] * backEnd.orientation.axis[0][0] +
-			                    fogSurface[1] * backEnd.orientation.axis[0][1] + fogSurface[2] * backEnd.orientation.axis[0][2];
-			fogDepthVector[1] = fogSurface[0] * backEnd.orientation.axis[1][0] +
-			                    fogSurface[1] * backEnd.orientation.axis[1][1] + fogSurface[2] * backEnd.orientation.axis[1][2];
-			fogDepthVector[2] = fogSurface[0] * backEnd.orientation.axis[2][0] +
-			                    fogSurface[1] * backEnd.orientation.axis[2][1] + fogSurface[2] * backEnd.orientation.axis[2][2];
-			fogDepthVector[3] = -fogSurface[3] + DotProduct(backEnd.orientation.origin, fogSurface);
+			depthVector[0] = fogSurface[0] * backEnd.orientation.axis[0][0] +
+			                 fogSurface[1] * backEnd.orientation.axis[0][1] + fogSurface[2] * backEnd.orientation.axis[0][2];
+			depthVector[1] = fogSurface[0] * backEnd.orientation.axis[1][0] +
+			                 fogSurface[1] * backEnd.orientation.axis[1][1] + fogSurface[2] * backEnd.orientation.axis[1][2];
+			depthVector[2] = fogSurface[0] * backEnd.orientation.axis[2][0] +
+			                 fogSurface[1] * backEnd.orientation.axis[2][1] + fogSurface[2] * backEnd.orientation.axis[2][2];
+			depthVector[3] = -fogSurface[3] + DotProduct(backEnd.orientation.origin, fogSurface);
 
 			// scale the fog vectors based on the fog's thickness
-			fogDepthVector[0] *= fog->shader->fogParms.tcScale * 1.0f;
-			fogDepthVector[1] *= fog->shader->fogParms.tcScale * 1.0f;
-			fogDepthVector[2] *= fog->shader->fogParms.tcScale * 1.0f;
-			fogDepthVector[3] *= fog->shader->fogParms.tcScale * 1.0f;
+			depthVector[0] *= fog->shader->fogParms.tcScale * 1.0f;
+			depthVector[1] *= fog->shader->fogParms.tcScale * 1.0f;
+			depthVector[2] *= fog->shader->fogParms.tcScale * 1.0f;
+			depthVector[3] *= fog->shader->fogParms.tcScale * 1.0f;
 
-			eyeT = DotProduct(viewOrigin, fogDepthVector) + fogDepthVector[3];
+			eyeT = DotProduct(viewOrigin, depthVector) + depthVector[3];
 		}
 		else
 		{
 			eyeT = 1;   // non-surface fog always has eye inside
 		}
+
 		// see if the viewpoint is outside
-		eyeInside = eyeT < 0 ? qfalse : qtrue;
-
-		// calculate density for each point
-		for (i = 0, v = tess.xyz[0] ; i < tess.numVertexes; i++, v += 4)
-		{
-			// calculate the length in fog
-			s = DotProduct(v, fogDistanceVector) + fogDistanceVector[3];
-			t = DotProduct(v, fogDepthVector) + fogDepthVector[3];
-
-			if (eyeInside)
-			{
-				t += eyeT;
-			}
-
-			//t *= fog->shader->fogParms.tcScale;
-
-			texCoords[0] = s;
-			texCoords[1] = t;
-			texCoords   += 2;
-		}
+		*tOffset = (eyeT < 0) ? 0 : eyeT;
 	}
 	// optimized for level-wide fogging
 	else
 	{
-		// calculate density for each point
-		for (i = 0, v = tess.xyz[0]; i < tess.numVertexes; i++, v += 4)
-		{
-			// calculate the length in fog (t is always 0 if eye is in fog)
-			texCoords[0] = DotProduct(v, fogDistanceVector) + fogDistanceVector[3];
-			texCoords[1] = 1.0;
-			texCoords   += 2;
-		}
+		// t is always 1 if eye is in fog
+		*tOffset = 1.0f;
+	}
+}
+
+/**
+ * @brief RB_CalcFogTexCoords
+ * @param[out] texCoords
+ */
+void RB_CalcFogTexCoords(float *texCoords)
+{
+	vec4_t distanceVector, depthVector;
+	float  tOffset;
+	float  *v;
+	int    i;
+
+	RB_CalcFogVectors(distanceVector, depthVector, &tOffset);
+
+	// calculate density for each point
+	for (i = 0, v = tess.xyz[0] ; i < tess.numVertexes; i++, v += 4)
+	{
+		// calculate the length in fog
+		texCoords[0] = DotProduct(v, distanceVector) + distanceVector[3];
+		texCoords[1] = DotProduct(v, depthVector) + depthVector[3] + tOffset;
+		texCoords   += 2;
 	}
 }
 

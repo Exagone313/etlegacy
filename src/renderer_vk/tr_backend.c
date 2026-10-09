@@ -194,14 +194,16 @@ void RB_ClearPipelineCache(void)
 }
 
 /**
- * @brief Upload the parameters of the enabled distance fog
- * @return 0 when no fog applies, else the fog mode of the pipeline (1 GL_LINEAR, 2 GL_EXP)
+ * @brief Get the parameters of the enabled distance fog
+ * @param[out] depthVector eye-space depth of the vertexes, like the fixed-function OpenGL fog
+ * @param[out] params end, 1/(end-start), density
+ * @param[out] color
+ * @return 0 when no fog applies, else the fog mode (1 GL_LINEAR, 2 GL_EXP)
  */
-static int RB_SetupFogUniform(void)
+static int RB_GetGlobalFog(vec4_t depthVector, vec4_t params, vec4_t color)
 {
 	const glfog_t *fog = fogCurrent;
 	const float   *m   = vk_world.modelview_transform;
-	vkUniform_t   uniform;
 	float         end;
 
 	if (!fogIsOn || !fog || backEnd.projection2D)
@@ -209,26 +211,81 @@ static int RB_SetupFogUniform(void)
 		return 0;
 	}
 
-	Com_Memset(&uniform, 0, sizeof(uniform));
-
-	// eye-space depth of the vertexes, like the fixed-function OpenGL fog
-	Vector4Set(uniform.fogDistanceVector, -m[2], -m[6], -m[10], -m[14]);
-	Vector4Copy(fog->color, uniform.fogColor);
+	Vector4Set(depthVector, -m[2], -m[6], -m[10], -m[14]);
+	Vector4Copy(fog->color, color);
 
 	if (fog->mode == GL_EXP)
 	{
-		uniform.fogDepthVector[2] = fog->density;
-		vk_push_uniform(&uniform);
+		Vector4Set(params, 0, 0, fog->density, 0);
 		return 2;
 	}
 
 	// allow override for helping level designers test fog distances
 	end = (r_zFar->value != 0.f) ? r_zFar->value : fog->end;
 
-	uniform.fogDepthVector[0] = end;
-	uniform.fogDepthVector[1] = (end != fog->start) ? 1.0f / (end - fog->start) : 1.0e6f;
-	vk_push_uniform(&uniform);
+	Vector4Set(params, end, (end != fog->start) ? 1.0f / (end - fog->start) : 1.0e6f, 0, 0);
 	return 1;
+}
+
+/**
+ * @brief Upload the parameters of the enabled distance fog
+ * @return 0 when no fog applies, else the fog mode of the pipeline (1 GL_LINEAR, 2 GL_EXP)
+ */
+static int RB_SetupFogUniform(void)
+{
+	vkUniform_t uniform;
+	int         mode;
+
+	Com_Memset(&uniform, 0, sizeof(uniform));
+
+	mode = RB_GetGlobalFog(uniform.fogDistanceVector, uniform.fogDepthVector, uniform.fogColor);
+	if (mode)
+	{
+		vk_push_uniform(&uniform);
+	}
+
+	return mode;
+}
+
+/**
+ * @brief Fog volume pass of queued VBO items, the texture coordinates are computed by the fog-only shaders
+ * @param[in] stateBits
+ * @param[in] colorInt fog color
+ */
+void RB_DrawFogPassVBO(unsigned int stateBits, unsigned int colorInt)
+{
+	Vk_Pipeline_Def def;
+	vkUniform_t     uniform;
+	const byte      *c = (const byte *)&colorInt;
+	int             mode;
+
+	Com_Memset(&uniform, 0, sizeof(uniform));
+
+	RB_CalcFogVectors(uniform.fogDistanceVector, uniform.fogDepthVector, &uniform.fogEyeT[0]);
+	Vector4Set(uniform.fogColor, c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, c[3] / 255.0f);
+
+	// the distance fog is applied by the shader with the unused light parameters
+	mode = RB_GetGlobalFog(uniform.light.pos, uniform.light.vector, uniform.light.color);
+	uniform.light.vector[3] = (float)mode;
+
+	vk_push_uniform(&uniform);
+
+	// the fog-only shaders sample the second texture unit
+	GL_SelectTexture(1);
+	GL_Bind(tr.fogImage);
+	GL_SelectTexture(0);
+
+	Com_Memset(&def, 0, sizeof(def));
+	def.shader_type    = TYPE_FOG_ONLY;
+	def.state_bits     = stateBits;
+	def.face_culling   = glState.faceCulling;
+	def.polygon_offset = glState.polygonOffset;
+	def.mirror         = backEnd.viewParms.isMirror ? qtrue : qfalse;
+	def.primitives     = TRIANGLE_LIST;
+
+	vk_bind_pipeline(RB_FindPipeline(&def));
+	vk_bind_geometry(TESS_XYZ);
+	vk_draw_geometry(tess.depthRange, qtrue);
 }
 
 /**
@@ -281,6 +338,15 @@ void RB_DrawElements(int numTextures, int numIndexes, const glIndex_t *indexes)
 	}
 
 	vk_bind_pipeline(RB_StatePipeline(numTextures, TRIANGLE_LIST));
+
+	if (tess.vboIndex && indexes == tess.indexes)
+	{
+		// the stage vertexes and the queued items indexes are in the static VBO
+		vk_bind_geometry(flags);
+		vk_draw_geometry(tess.depthRange, qtrue);
+		return;
+	}
+
 	if (numIndexes)
 	{
 		vk_bind_index_ext(numIndexes, indexes);
@@ -730,6 +796,12 @@ void RB_RenderDrawSurfList(drawSurf_t *drawSurfs, int numDrawSurfs)
 
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++)
 	{
+		// other surfaces than triangles can't be added to queued VBO items
+		if (tess.vboIndex && *drawSurf->surface != SF_TRIANGLES)
+		{
+			VBO_Flush();
+		}
+
 		if (drawSurf->sort == oldSort)
 		{
 			// fast path, same as previous sort

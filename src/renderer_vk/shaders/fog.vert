@@ -25,45 +25,25 @@ layout(set = 0, binding = 0) uniform UBO {
 };
 
 layout(location = 0) in vec3 in_position;
-//layout(location = 1) in vec4 in_color;
-//layout(location = 2) in vec2 in_tex_coord0;
-//layout(location = 3) in vec2 in_tex_coord1;
-//layout(location = 4) in vec2 in_tex_coord2;
 
-//layout(location = 0) out vec4 frag_color;
-//layout(location = 1) out vec2 frag_tex_coord0;
-//layout(location = 2) out vec2 frag_tex_coord1;
-//layout(location = 3) out vec2 frag_tex_coord1;
 layout(location = 4) out vec2 fog_tex_coord;
+layout(location = 5) out float fog_depth;
 
 out gl_PerVertex {
 	vec4 gl_Position;
 };
 
+// ET fog volume pass, same as RB_CalcFogTexCoords():
+// fogEyeT.x is added to t, the eye depth in the fog when the eye is inside,
+// or 1.0 with a zero fogDepthVector for the level-wide fog
+// lightPos holds the eye-space depth vector of the global distance fog
 void main() {
 	gl_Position = mvp * vec4(in_position, 1.0);
 
-	//frag_color = in_color;
-	//frag_tex_coord0 = in_tex_coord0;
-
-	// fog calculations...
-
 	float s = dot(in_position, fogDistanceVector.xyz) + fogDistanceVector.w;
-	float t = dot(in_position, fogDepthVector.xyz) + fogDepthVector.w;
-
-	if ( fogEyeT.y == 1.0 ) {
-		if ( t < 0.0 ) {
-			t = 1.0 / 32.0;
-		} else {
-			t = 31.0 / 32.0;
-		}
-	} else {
-		if ( t < 1.0 ) {
-			t = 1.0 / 32.0;
-		} else {
-			t = 1.0 / 32.0 + (30.0 / 32.0 * t) / ( t - fogEyeT.x );
-		}
-	}
+	float t = dot(in_position, fogDepthVector.xyz) + fogDepthVector.w + fogEyeT.x;
 
 	fog_tex_coord = vec2(s, t);
+
+	fog_depth = abs(dot(in_position, lightPos.xyz) + lightPos.w);
 }

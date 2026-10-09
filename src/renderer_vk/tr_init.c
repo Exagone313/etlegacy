@@ -1004,6 +1004,9 @@ void RE_Shutdown(qboolean destroyWindow)
 	// the Vulkan device is kept when the window is, the cached images stay valid
 	keepMedia = (r_cache->integer && !destroyWindow && vk.active) ? qtrue : qfalse;
 
+	// the static VBO items live in the hunk of the unloaded map
+	VBO_Cleanup();
+
 	// nothing to back up or delete when not registered, e.g. on a second
 	// shutdown before the next map is loaded
 	if (tr.registered)

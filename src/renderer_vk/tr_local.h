@@ -410,6 +410,9 @@ typedef struct
 
 	qboolean isDetail;
 	qboolean isFogged;                          ///< used only for shaders that have fog disabled, so we can enable it for individual stages
+
+	int rgb_offset[3];                          ///< static world VBO: offset of the stage colors
+	int tex_offset[3];                          ///< static world VBO: offset of the stage texture coordinates per bundle
 } shaderStage_t;
 
 struct shaderCommands_s;
@@ -529,6 +532,17 @@ typedef struct shader_s
 	double timeOffset;                                  ///< current time offset for this shader
 
 	struct shader_s *remappedShader;                    ///< current shader this one is remapped too
+
+	// static world VBO, see tr_vbo.c
+	qboolean isStaticShader;                            ///< all stages can be evaluated at map load time
+	int svarsSize;                                      ///< bytes of stage colors and texture coordinates per vertex
+	int iboOffset;                                      ///< offset of the shader indexes in the VBO
+	int vboOffset;                                      ///< offset of the shader vertexes in the VBO
+	int normalOffset;
+	int numIndexes;                                     ///< indexes of all the static surfaces using this shader
+	int numVertexes;
+	int curIndexes;                                     ///< used while filling the VBO
+	int curVertexes;
 
 	struct shader_s *next;
 } shader_t;
@@ -957,6 +971,8 @@ typedef struct srfTriangles_s
 
 	int numVerts;
 	drawVert_t *verts;
+
+	int vboItemIndex;               ///< static world VBO item, 0 if none
 } srfTriangles_t;
 
 /**
@@ -1790,11 +1806,24 @@ typedef struct shaderCommands_s
 	int numPasses;
 	void (*currentStageIteratorFunc)(void);
 	shaderStage_t **xstages;
+
+	// static world VBO
+	qboolean allowVBO;      ///< surfaces of this batch may be queued as VBO items
+	int vboIndex;           ///< non zero when the batch is made of queued VBO items
+	int vboStage;           ///< stage being drawn from the VBO
 } shaderCommands_t;
 
 extern shaderCommands_t tess;
 
 void RB_BeginSurface(shader_t *shader, int fogNum);
+void RB_ComputeStageVars(shaderStage_t *pStage);
+
+// tr_vbo.c
+void R_BuildWorldVBO(msurface_t *surf, int surfCount);
+void VBO_Cleanup(void);
+void VBO_QueueItem(int itemIndex);
+void VBO_ClearQueue(void);
+void VBO_Flush(void);
 void RB_EndSurface(void);
 void RB_CheckOverflow(int verts, int indexes);
 #define RB_CHECKOVERFLOW(v, i) if (tess.numVertexes + (v) >= SHADER_MAX_VERTEXES || tess.numIndexes + (i) >= SHADER_MAX_INDEXES) { RB_CheckOverflow(v, i); }
@@ -1961,6 +1990,8 @@ void RB_DeformTessGeometry(void);
 void RB_CalcEnvironmentTexCoords(float *texCoords);
 void RB_CalcFireRiseEnvTexCoords(float *st);
 void RB_CalcFogTexCoords(float *texCoords);
+void RB_CalcFogVectors(vec4_t distanceVector, vec4_t depthVector, float *tOffset);
+void RB_DrawFogPassVBO(unsigned int stateBits, unsigned int colorInt);
 void RB_CalcScrollTexCoords(const float scrollSpeed[2], float *texCoords);
 void RB_CalcRotateTexCoords(float degsPerSecond, float *texCoords);
 void RB_CalcScaleTexCoords(const float scale[2], float *texCoords);

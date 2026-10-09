@@ -65,6 +65,7 @@ extern cvar_t *r_cacheShaders;
 extern cvar_t *r_cacheModels;
 
 extern cvar_t *r_fbo;
+extern cvar_t *r_vbo;
 
 extern cvar_t *r_cacheGathering;
 

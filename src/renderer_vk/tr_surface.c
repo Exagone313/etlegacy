@@ -367,6 +367,25 @@ void RB_SurfaceTriangles(srfTriangles_t *srf)
 	int        dlightBits;
 	qboolean   needsNormal;
 
+	if (tess.allowVBO && srf->vboItemIndex && !srf->dlightBits && backEnd.currentEntity == &tr.worldEntity)
+	{
+		// transition to the VBO items queue
+		if (tess.vboIndex == 0)
+		{
+			RB_EndSurface();
+			RB_BeginSurface(tess.shader, tess.fogNum);
+			// dummy count for RB_EndSurface
+			tess.numIndexes  = 1;
+			tess.numVertexes = 0;
+			VBO_ClearQueue();
+		}
+		tess.vboIndex = srf->vboItemIndex;
+		VBO_QueueItem(srf->vboItemIndex);
+		return; // no need to tesselate anything
+	}
+
+	VBO_Flush();
+
 	// moved before overflow so dlights work properly
 	RB_CHECKOVERFLOW(srf->numVerts, srf->numIndexes);
 
