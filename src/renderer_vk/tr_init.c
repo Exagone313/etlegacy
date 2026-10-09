@@ -2,6 +2,9 @@
  * Wolfenstein: Enemy Territory GPL Source Code
  * Copyright (C) 1999-2010 id Software LLC, a ZeniMax Media company.
  *
+ * Quake3e GPL Source Code (Vulkan backend integration)
+ * Copyright (C) 2016 Eugene
+ *
  * ET: Legacy
  * Copyright (C) 2012-2024 ET:Legacy team <mail@etlegacy.com>
  *
@@ -40,6 +43,10 @@ qboolean   textureFilterAnisotropic = qfalse;
 float      maxAnisotropy            = 2.f;
 
 glstate_t glState;
+glstatic_t gls;
+
+Vk_Instance vk;
+Vk_World    vk_world;
 
 /**
  * @brief This function is responsible for initializing a valid OpenGL subsystem
@@ -61,51 +68,57 @@ static void InitOpenGL(void)
 
 	if (glConfig.vidWidth == 0)
 	{
-		char  glConfigString[1024] = { 0 };
-		char  renderer_buffer[1024];
-		GLint temp;
+		char glConfigString[1024] = { 0 };
 
 		Com_Memset(&glConfig, 0, sizeof(glConfig));
 
-		Info_SetValueForKey(glConfigString, "type", "opengl");
+		// the window is created with SDL_WINDOW_VULKAN and without OpenGL context
+		Info_SetValueForKey(glConfigString, "type", "vulkan");
 		Info_SetValueForKey(glConfigString, "major", "1");
-		Info_SetValueForKey(glConfigString, "minor", "1");
-
-		// If we are using FBO's then disable multisampling on the main screen buffer
-		if (r_fbo->integer)
-		{
-			Info_SetValueForKey(glConfigString, "samples", "0");
-		}
-		else
-		{
-			Info_SetValueForKey(glConfigString, "samples", va("%d", r_ext_multisample->integer));
-		}
+		Info_SetValueForKey(glConfigString, "minor", "0");
+		Info_SetValueForKey(glConfigString, "samples", "0");
 
 		ri.GLimp_Init(&glConfig, glConfigString);
 
-		Q_strncpyz(renderer_buffer, glConfig.renderer_string, sizeof(renderer_buffer));
-		Q_strlwr(renderer_buffer);
+		gls.windowWidth  = glConfig.vidWidth;
+		gls.windowHeight = glConfig.vidHeight;
 
-		// OpenGL driver constants
-		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &temp);
-		glConfig.maxTextureSize = temp;
+		gls.captureWidth  = glConfig.vidWidth;
+		gls.captureHeight = glConfig.vidHeight;
 
-		// stubbed or broken drivers may have reported 0...
-		if (glConfig.maxTextureSize <= 0)
+		if (r_fbo->integer && r_ext_supersample->integer)
 		{
-			glConfig.maxTextureSize = 0;
+			glConfig.vidWidth  *= 2;
+			glConfig.vidHeight *= 2;
 		}
 
-		if (r_scale->value)
-		{
-			const float scale = Com_Clamp(0.2f, 4.f, r_scale->value);
-			glConfig.vidWidth  *= scale;
-			glConfig.vidHeight *= scale;
-		}
+		vk_initialize();
+
+		gls.deviceSupportsGamma = glConfig.deviceSupportsGamma;
+
+		// print info
+		GfxInfo_f();
+
+		gls.initTime = ri.Milliseconds();
 	}
 
-	// print info
-	GfxInfo_f();
+	if (!vk.active)
+	{
+		// might happen after a shutdown which kept the window
+		vk_initialize();
+		gls.initTime = ri.Milliseconds();
+	}
+
+	if (vk.active)
+	{
+		vk_init_descriptors();
+	}
+	else
+	{
+		Ren_Fatal("Recursive error during Vulkan initialization");
+	}
+
+	RB_ClearPipelineCache();
 
 	// set default state
 	GL_SetDefaultState();
@@ -116,45 +129,7 @@ static void InitOpenGL(void)
  */
 void GL_CheckErrors(void)
 {
-	unsigned int err;
-	char         *s;
-
-	if (r_ignoreGLErrors->integer)
-	{
-		return;
-	}
-
-	err = glGetError();
-	if (err == GL_NO_ERROR)
-	{
-		return;
-	}
-	switch (err)
-	{
-	case GL_INVALID_ENUM:
-		s = "GL_INVALID_ENUM";
-		break;
-	case GL_INVALID_VALUE:
-		s = "GL_INVALID_VALUE";
-		break;
-	case GL_INVALID_OPERATION:
-		s = "GL_INVALID_OPERATION";
-		break;
-	case GL_STACK_OVERFLOW:
-		s = "GL_STACK_OVERFLOW";
-		break;
-	case GL_STACK_UNDERFLOW:
-		s = "GL_STACK_UNDERFLOW";
-		break;
-	case GL_OUT_OF_MEMORY:
-		s = "GL_OUT_OF_MEMORY";
-		break;
-	default:
-		s = "";
-		break;
-	}
-
-	Ren_Fatal("GL_CheckErrors: %s code (%i)", s, err);
+	// Vulkan errors are checked by the backend on each call
 }
 
 /*
@@ -197,58 +172,14 @@ void GL_CheckErrors(void)
  */
 byte *RB_ReadPixels(int x, int y, int width, int height, size_t *offset, int *padlen)
 {
-	byte  *buffer, *bufstart;
-	int   padwidth, linelen;
-	GLint packAlign;
+	byte *buffer;
 
-	glGetIntegerv(GL_PACK_ALIGNMENT, &packAlign);
+	// the Vulkan backend always reads the whole capture area, tightly packed
+	buffer = ri.Hunk_AllocateTempMemory(width * height * 3 + *offset);
 
-	linelen  = width * 3;
-	padwidth = PAD(linelen, packAlign);
+	vk_read_pixels(buffer + *offset, width, height);
 
-	// Allocate a few more bytes so that we can choose an alignment we like
-	buffer = ri.Hunk_AllocateTempMemory(padwidth * height + *offset + packAlign - 1);
-
-	bufstart = PADP(( intptr_t ) buffer + *offset, packAlign);
-
-	glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, bufstart);
-
-	*offset = bufstart - buffer;
-	*padlen = padwidth - linelen;
-
-	return buffer;
-}
-
-/**
- * @brief RB_ReadZBuffer
- * @param[in] x
- * @param[in] y
- * @param[in] width
- * @param[in,out] height
- * @param[in,out] padlen
- * @return
- *
- * @note Unused
- */
-byte *RB_ReadZBuffer(int x, int y, int width, int height, int *padlen)
-{
-	byte  *buffer, *bufstart;
-	int   padwidth, linelen;
-	GLint packAlign;
-
-	glGetIntegerv(GL_PACK_ALIGNMENT, &packAlign);
-
-	linelen  = width;
-	padwidth = PAD(linelen, packAlign);
-
-	// Allocate a few more bytes so that we can choose an alignment we like
-	buffer = ri.Hunk_AllocateTempMemory(padwidth * height + packAlign - 1);
-
-	bufstart = PADP(( intptr_t ) buffer, packAlign);
-	glDepthRange(0.0f, 1.0f);
-	glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, bufstart);
-
-	*padlen = padwidth - linelen;
+	*padlen = 0;
 
 	return buffer;
 }
@@ -312,6 +243,74 @@ void RB_TakeDepthshot(int x, int y, int width, int height, const char *fileName)
 }
 */
 
+static screenshotCommand_t pendingScreenshot;
+static char                pendingScreenshotName[MAX_OSPATH];
+static videoFrameCommand_t pendingVideoFrame;
+
+/**
+ * @brief Read back the last submitted frame and hand it to the AVI writer
+ * @param[in] cmd
+ */
+static void RB_WriteVideoFrame(const videoFrameCommand_t *cmd)
+{
+	byte   *cBuf;
+	size_t memcount, linelen;
+	int    avipadwidth, avipadlen;
+
+	linelen = cmd->width * 3;
+
+	// AVI line padding
+	avipadwidth = PAD(linelen, AVI_LINE_PADDING);
+	avipadlen   = avipadwidth - linelen;
+
+	cBuf = cmd->captureBuffer;
+
+	vk_read_pixels(cBuf, cmd->width, cmd->height);
+
+	memcount = linelen * cmd->height;
+
+	// gamma correct
+	if (glConfig.deviceSupportsGamma && vk.capture.image == VK_NULL_HANDLE)
+	{
+		R_GammaCorrect(cBuf, memcount);
+	}
+
+	if (cmd->motionJpeg)
+	{
+		memcount = RE_SaveJPGToBuffer(cmd->encodeBuffer, linelen * cmd->height,
+		                              r_screenshotJpegQuality->integer,
+		                              cmd->width, cmd->height, cBuf, 0);
+		ri.CL_WriteAVIVideoFrame(cmd->encodeBuffer, memcount);
+	}
+	else
+	{
+		byte *lineend, *memend;
+		byte *srcptr, *destptr;
+
+		srcptr  = cBuf;
+		destptr = cmd->encodeBuffer;
+		memend  = srcptr + memcount;
+
+		// swap R and B and add line paddings
+		while (srcptr < memend)
+		{
+			lineend = srcptr + linelen;
+			while (srcptr < lineend)
+			{
+				*destptr++ = srcptr[2];
+				*destptr++ = srcptr[1];
+				*destptr++ = srcptr[0];
+				srcptr    += 3;
+			}
+
+			Com_Memset(destptr, '\0', avipadlen);
+			destptr += avipadlen;
+		}
+
+		ri.CL_WriteAVIVideoFrame(cmd->encodeBuffer, avipadwidth * cmd->height);
+	}
+}
+
 /**
  * @brief RB_TakeScreenshotTGA
  * @param[in] x
@@ -329,7 +328,7 @@ void RB_TakeScreenshotTGA(int x, int y, int width, int height, const char *fileN
 	int    linelen, padlen;
 	size_t offset = 18, memcount;
 
-	allbuf = R_FBOReadPixels(NULL, &offset, &padlen);
+	allbuf = RB_ReadPixels(0, 0, gls.captureWidth, gls.captureHeight, &offset, &padlen);
 	buffer = allbuf + offset - 18;
 
 	Com_Memset(buffer, 0, 18);
@@ -367,7 +366,7 @@ void RB_TakeScreenshotTGA(int x, int y, int width, int height, const char *fileN
 	memcount = linelen * height;
 
 	// gamma correct
-	if (glConfig.deviceSupportsGamma && !tr.gammaProgramUsed)
+	if (glConfig.deviceSupportsGamma && vk.capture.image == VK_NULL_HANDLE)
 	{
 		R_GammaCorrect(allbuf + offset, memcount);
 	}
@@ -391,11 +390,11 @@ void RB_TakeScreenshotJPEG(int x, int y, int width, int height, char *fileName)
 	size_t offset = 0, memcount;
 	int    padlen;
 
-	buffer   = R_FBOReadPixels(NULL, &offset, &padlen);
+	buffer   = RB_ReadPixels(0, 0, gls.captureWidth, gls.captureHeight, &offset, &padlen);
 	memcount = (width * 3 + padlen) * height;
 
 	// gamma correct
-	if (glConfig.deviceSupportsGamma && !tr.gammaProgramUsed)
+	if (glConfig.deviceSupportsGamma && vk.capture.image == VK_NULL_HANDLE)
 	{
 		R_GammaCorrect(buffer + offset, memcount);
 	}
@@ -419,11 +418,11 @@ void RB_TakeScreenshotPNG(int x, int y, int width, int height, char *fileName)
 	size_t offset = 0, memcount;
 	int    padlen;
 
-	buffer   = R_FBOReadPixels(NULL, &offset, &padlen);
+	buffer   = RB_ReadPixels(0, 0, gls.captureWidth, gls.captureHeight, &offset, &padlen);
 	memcount = (width * 3 + padlen) * height;
 
 	// gamma correct
-	if (glConfig.deviceSupportsGamma && !tr.gammaProgramUsed)
+	if (glConfig.deviceSupportsGamma && vk.capture.image == VK_NULL_HANDLE)
 	{
 		R_GammaCorrect(buffer + offset, memcount);
 	}
@@ -442,22 +441,47 @@ const void *RB_TakeScreenshotCmd(const void *data)
 {
 	const screenshotCommand_t *cmd = ( const screenshotCommand_t * ) data;
 
-	switch (cmd->format)
-	{
-	case SSF_TGA:
-		RB_TakeScreenshotTGA(cmd->x, cmd->y, cmd->width, cmd->height, cmd->fileName);
-		break;
-	case SSF_JPEG:
-		RB_TakeScreenshotJPEG(cmd->x, cmd->y, cmd->width, cmd->height, cmd->fileName);
-		break;
-#ifdef FEATURE_PNG
-	case SSF_PNG:
-		RB_TakeScreenshotPNG(cmd->x, cmd->y, cmd->width, cmd->height, cmd->fileName);
-		break;
-#endif
-	}
+	// the frame is still being recorded, defer the capture to RB_SwapBuffers
+	pendingScreenshot = *cmd;
+	Q_strncpyz(pendingScreenshotName, cmd->fileName, sizeof(pendingScreenshotName));
+	pendingScreenshot.fileName = pendingScreenshotName;
+	backEnd.screenshotMask    |= SCREENSHOT_MASK_IMAGE;
 
 	return ( const void * ) (cmd + 1);
+}
+
+/**
+ * @brief Write the screenshots and video frames requested during this frame,
+ * called by RB_SwapBuffers once the frame has been submitted.
+ */
+void RB_TakePendingScreenshots(void)
+{
+	if (backEnd.screenshotMask & SCREENSHOT_MASK_IMAGE)
+	{
+		const screenshotCommand_t *cmd = &pendingScreenshot;
+
+		switch (cmd->format)
+		{
+		case SSF_TGA:
+			RB_TakeScreenshotTGA(cmd->x, cmd->y, cmd->width, cmd->height, cmd->fileName);
+			break;
+		case SSF_JPEG:
+			RB_TakeScreenshotJPEG(cmd->x, cmd->y, cmd->width, cmd->height, (char *)cmd->fileName);
+			break;
+#ifdef FEATURE_PNG
+		case SSF_PNG:
+			RB_TakeScreenshotPNG(cmd->x, cmd->y, cmd->width, cmd->height, (char *)cmd->fileName);
+			break;
+#endif
+		}
+	}
+
+	if (backEnd.screenshotMask & SCREENSHOT_MASK_VIDEO)
+	{
+		RB_WriteVideoFrame(&pendingVideoFrame);
+	}
+
+	backEnd.screenshotMask = 0;
 }
 
 /**
@@ -524,83 +548,11 @@ void R_ScreenshotFilename(int lastNumber, char *fileName, char *ext)
  */
 const void *RB_TakeVideoFrameCmd(const void *data)
 {
-	const videoFrameCommand_t *cmd;
-	byte                      *cBuf;
-	size_t                    memcount, linelen;
-	int                       padwidth, avipadwidth, padlen, avipadlen;
-	GLint                     packAlign;
-	frameBuffer_t             *tmpFbo;
+	const videoFrameCommand_t *cmd = (const videoFrameCommand_t *)data;
 
-	// finish any 2D drawing if needed
-	if (tess.numIndexes)
-	{
-		RB_EndSurface();
-	}
-
-	cmd = (const videoFrameCommand_t *)data;
-
-	glGetIntegerv(GL_PACK_ALIGNMENT, &packAlign);
-
-	linelen = cmd->width * 3;
-
-	// Alignment stuff for glReadPixels
-	padwidth = PAD(linelen, packAlign);
-	padlen   = padwidth - linelen;
-	// AVI line padding
-	avipadwidth = PAD(linelen, AVI_LINE_PADDING);
-	avipadlen   = avipadwidth - linelen;
-
-	cBuf = PADP(cmd->captureBuffer, packAlign);
-
-	tmpFbo = R_CurrentFBO();
-	R_BindFBO(NULL);
-	glReadPixels(0, 0, cmd->width, cmd->height, GL_RGB, GL_UNSIGNED_BYTE, cBuf);
-	R_BindFBO(tmpFbo);
-
-	memcount = padwidth * cmd->height;
-
-	// gamma correct
-	if (glConfig.deviceSupportsGamma && !tr.gammaProgramUsed)
-	{
-		R_GammaCorrect(cBuf, memcount);
-	}
-
-	if (cmd->motionJpeg)
-	{
-		memcount = RE_SaveJPGToBuffer(cmd->encodeBuffer, linelen * cmd->height,
-		                              r_screenshotJpegQuality->integer,
-		                              cmd->width, cmd->height, cBuf, padlen);
-		ri.CL_WriteAVIVideoFrame(cmd->encodeBuffer, memcount);
-	}
-	else
-	{
-		byte *lineend, *memend;
-		byte *srcptr, *destptr;
-
-		srcptr  = cBuf;
-		destptr = cmd->encodeBuffer;
-		memend  = srcptr + memcount;
-
-		// swap R and B and remove line paddings
-		while (srcptr < memend)
-		{
-			lineend = srcptr + linelen;
-			while (srcptr < lineend)
-			{
-				*destptr++ = srcptr[2];
-				*destptr++ = srcptr[1];
-				*destptr++ = srcptr[0];
-				srcptr    += 3;
-			}
-
-			Com_Memset(destptr, '\0', avipadlen);
-			destptr += avipadlen;
-
-			srcptr += padlen;
-		}
-
-		ri.CL_WriteAVIVideoFrame(cmd->encodeBuffer, avipadwidth * cmd->height);
-	}
+	// the frame is still being recorded, defer the capture to RB_SwapBuffers
+	pendingVideoFrame       = *cmd;
+	backEnd.screenshotMask |= SCREENSHOT_MASK_VIDEO;
 
 	return (const void *)(cmd + 1);
 }
@@ -624,7 +576,7 @@ void R_LevelShot(void)
 
 	Com_sprintf(checkname, sizeof(checkname), "levelshots/%s.tga", tr.world->baseName);
 
-	allsource = R_FBOReadPixels(NULL, &offset, &padlen);
+	allsource = RB_ReadPixels(0, 0, gls.captureWidth, gls.captureHeight, &offset, &padlen);
 	source    = allsource + offset;
 
 	buffer = ri.Hunk_AllocateTempMemory(128 * 128 * 3 + 18);
@@ -661,7 +613,7 @@ void R_LevelShot(void)
 	}
 
 	// gamma correct
-	if (glConfig.deviceSupportsGamma && !tr.gammaProgramUsed)
+	if (glConfig.deviceSupportsGamma && vk.capture.image == VK_NULL_HANDLE)
 	{
 		R_GammaCorrect(buffer + 18, 128 * 128 * 3);
 	}
@@ -811,43 +763,18 @@ void R_ScreenShot_f(void)
  */
 void GL_SetDefaultState(void)
 {
-	glClearDepth(1.0);
-
-	glCullFace(GL_FRONT);
-
-	glColor4f(1, 1, 1, 1);
-
-	// initialize downstream texture unit if we're running
-	// in a multitexture environment
-	if (glActiveTextureARB)
-	{
-		GL_SelectTexture(1);
-		GL_TextureMode(r_textureMode->string);
-		GL_TexEnv(GL_MODULATE);
-		glDisable(GL_TEXTURE_2D);
-		GL_SelectTexture(0);
-	}
-
-	glEnable(GL_TEXTURE_2D);
 	GL_TextureMode(r_textureMode->string);
+
+	GL_SelectTexture(1);
+	GL_TexEnv(GL_MODULATE);
+	GL_SelectTexture(0);
 	GL_TexEnv(GL_MODULATE);
 
-	glShadeModel(GL_SMOOTH);
-	glDepthFunc(GL_LEQUAL);
-
-	// the vertex array is always enabled, but the color and texture
-	// arrays are enabled and disabled around the compiled vertex array call
-	glEnableClientState(GL_VERTEX_ARRAY);
+	glState.faceCulling   = CT_TWO_SIDED;
+	glState.polygonOffset = qfalse;
 
 	// make sure our GL state vector is set correctly
 	glState.glStateBits = GLS_DEPTHTEST_DISABLE | GLS_DEPTHMASK_TRUE;
-
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glDepthMask(GL_TRUE);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_SCISSOR_TEST);
-	glDisable(GL_CULL_FACE);
-	glDisable(GL_BLEND);
 }
 
 /**
@@ -855,33 +782,47 @@ void GL_SetDefaultState(void)
  */
 void GfxInfo_f(void)
 {
-	const char *enablestrings[] =
-	{
-		"disabled",
-		"enabled"
-	};
 	const char *fsstrings[] =
 	{
 		"windowed",
 		"fullscreen"
 	};
 
-	Ren_Print("GL_VENDOR: %s\n", glConfig.vendor_string);
-	Ren_Print("GL_RENDERER: %s\n", glConfig.renderer_string);
-	Ren_Print("GL_VERSION: %s\n", glConfig.version_string);
-	Ren_Print("GL_SHADING_LANGUAGE_VERSION: %s\n", glConfig.shadingLanguageVersion);
+	Ren_Print("VK_VENDOR: %s\n", glConfig.vendor_string);
+	Ren_Print("VK_RENDERER: %s\n", glConfig.renderer_string);
+	Ren_Print("VK_VERSION: %s\n", glConfig.version_string);
+
+	if (vk.driverNote[0] != '\0')
+	{
+		Ren_Print("%s", vk.driverNote);
+	}
 
 	if (r_gfxInfo->integer > 0)
 	{
-		Ren_Print("GL_EXTENSIONS: ");
-		R_PrintLongString((const char *)glGetString(GL_EXTENSIONS));
+		Ren_Print("VK_EXTENSIONS: ");
+		R_PrintLongString(glConfig.extensions_string);
 		Ren_Print("\n");
 	}
 
-	Ren_Print("GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize);
-	Ren_Print("GL_MAX_ACTIVE_TEXTURES_ARB: %d\n", glConfig.maxActiveTextures);
+	Ren_Print("VK_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize);
+	Ren_Print("VK_MAX_TEXTURE_UNITS: %d\n", glConfig.maxActiveTextures);
 	Ren_Print("PIXELFORMAT: color(%d-bits) Z(%d-bit) stencil(%d-bits)\n", glConfig.colorBits, glConfig.depthBits, glConfig.stencilBits);
-	Ren_Print("MODE: %d, SCREEN: %d x %d %s (ratio %.4f) Hz:", ri.Cvar_VariableIntegerValue("r_mode"), glConfig.vidWidth, glConfig.vidHeight, fsstrings[ri.Cvar_VariableIntegerValue("r_fullscreen") == 1], glConfig.windowAspect);
+	Ren_Print(" presentation: %s\n", vk_format_string(vk.present_format.format));
+	if (vk.color_format != vk.present_format.format)
+	{
+		Ren_Print(" color: %s\n", vk_format_string(vk.color_format));
+	}
+	if (vk.capture_format != vk.present_format.format || vk.capture_format != vk.color_format)
+	{
+		Ren_Print(" capture: %s\n", vk_format_string(vk.capture_format));
+	}
+	Ren_Print(" depth: %s\n", vk_format_string(vk.depth_format));
+
+	if (glConfig.vidWidth != gls.windowWidth || glConfig.vidHeight != gls.windowHeight)
+	{
+		Ren_Print("RENDER: %d x %d, ", glConfig.vidWidth, glConfig.vidHeight);
+	}
+	Ren_Print("MODE: %d, SCREEN: %d x %d %s (ratio %.4f) Hz:", ri.Cvar_VariableIntegerValue("r_mode"), gls.windowWidth, gls.windowHeight, fsstrings[ri.Cvar_VariableIntegerValue("r_fullscreen") == 1], glConfig.windowAspect);
 
 	if (glConfig.displayFrequency)
 	{
@@ -904,10 +845,6 @@ void GfxInfo_f(void)
 	Ren_Print("texturemode: %s\n", r_textureMode->string);
 	Ren_Print("picmip: %d\n", r_picMip->integer);
 	Ren_Print("texture bits: %d\n", r_textureBits->integer);
-	Ren_Print("multitexture: %s\n", enablestrings[glActiveTextureARB != 0]);
-	Ren_Print("compiled vertex arrays: %s\n", enablestrings[glLockArraysEXT != 0]);
-	Ren_Print("texenv add: %s\n", enablestrings[glConfig.textureEnvAddAvailable != 0]);
-	Ren_Print("compressed textures: %s\n", enablestrings[glConfig.textureCompression != TC_NONE]);
 
 	if (r_finish->integer)
 	{
@@ -916,11 +853,22 @@ void GfxInfo_f(void)
 }
 
 /**
+ * @brief Print Vulkan backend statistics
+ */
+void VkInfo_f(void)
+{
+	Ren_Print("max_vertex_usage: %iKb\n", (int)((vk.stats.vertex_buffer_max + 1023) / 1024));
+	Ren_Print("max_push_size: %ib\n", vk.stats.push_size_max);
+	Ren_Print("pipeline handles: %i\n", vk.pipeline_create_count);
+	Ren_Print("pipeline descriptors: %i, base: %i\n", vk.pipelines_count, vk.pipelines_world_base);
+	Ren_Print("image chunks: %i\n", vk_world.num_image_chunks);
+}
+
+/**
  * @brief R_Init
  */
 void R_Init(void)
 {
-	int  err;
 	int  i;
 	byte *ptr;
 
@@ -979,13 +927,9 @@ void R_Init(void)
 
 	InitOpenGL();
 
-	R_InitShaderPrograms();
-
-	R_InitFBO();
-
-	R_InitGamma();
-
 	R_InitImages();
+
+	vk_create_pipelines();
 
 	R_InitShaders();
 
@@ -996,12 +940,6 @@ void R_Init(void)
 	R_InitFreeType();
 
 	R_InitSplash();
-
-	err = glGetError();
-	if (err != GL_NO_ERROR)
-	{
-		Ren_Print("R_Init: glGetError() = 0x%x\n", err);
-	}
 
 	Ren_Print("--------------------------------\n");
 }
@@ -1029,47 +967,39 @@ void RE_Shutdown(qboolean destroyWindow)
 	ri.Cmd_RemoveSystemCommand("screenshot");
 	ri.Cmd_RemoveSystemCommand("screenshotJPEG");
 	ri.Cmd_RemoveSystemCommand("gfxinfo");
+	ri.Cmd_RemoveSystemCommand("vkinfo");
 	ri.Cmd_RemoveSystemCommand("taginfo");
 
-	// keep a backup of the current images if possible
 	// clean out any remaining unused media from the last backup
 	R_PurgeCache();
 
-	if (r_cache->integer)
-	{
-		if (tr.registered)
-		{
-			if (destroyWindow)
-			{
-				R_IssuePendingRenderCommands();
-				R_DeleteTextures();
-			}
-			else
-			{
-				// backup the current media
-				R_BackupModels();
-				R_BackupShaders();
-				R_BackupImages();
-			}
-		}
-	}
-	else if (tr.registered)
+	// the media cache is disabled with Vulkan, see R_Register()
+	if (tr.registered)
 	{
 		R_IssuePendingRenderCommands();
-		R_DeleteTextures();
 	}
+
+	if (vk.active && vk.frame_count)
+	{
+		// a frame was interrupted (e.g. by a drop error), submit what was recorded
+		vk_end_frame();
+		vk_present_frame();
+	}
+
+	R_DeleteTextures();
 
 	R_DoneFreeType();
 
-	R_ShutdownGamma();
+	if (vk.active)
+	{
+		vk_release_resources();
+	}
 
-	R_ShutdownFBO();
-
-	R_ShutdownShaderPrograms();
-
-	// shut down platform specific OpenGL stuff
+	// shut down platform specific Vulkan stuff
 	if (destroyWindow)
 	{
+		vk_shutdown(r_device->modified ? REF_UNLOAD_DLL : REF_DESTROY_WINDOW);
+
 		R_DoGLimpShutdown();
 
 		// release the virtual memory
@@ -1094,6 +1024,36 @@ void RE_EndRegistration(void)
 	//              RB_ShowImages();
 	}
 	*/
+}
+
+/**
+ * @brief Called by GLimp_SetMode() once the window is created, nothing to check
+ * for Vulkan as the device is selected later by vk_initialize()
+ * @return
+ */
+int RE_InitOpenGlSubsystems(void)
+{
+	return qtrue;
+}
+
+/**
+ * @brief Called by GLimp_Init() once the window is ready
+ */
+void RE_InitOpenGl(void)
+{
+	glConfig.driverType   = GLDRV_ICD;
+	glConfig.hardwareType = GLHW_GENERIC;
+}
+
+/**
+ * @brief Destroy the window
+ */
+void R_DoGLimpShutdown(void)
+{
+	ri.GLimp_Shutdown();
+
+	Com_Memset(&glConfig, 0, sizeof(glConfig));
+	Com_Memset(&glState, 0, sizeof(glState));
 }
 
 void R_DebugPolygon(int color, int numPoints, float *points);

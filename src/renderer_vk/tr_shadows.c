@@ -2,6 +2,9 @@
  * Wolfenstein: Enemy Territory GPL Source Code
  * Copyright (C) 1999-2010 id Software LLC, a ZeniMax Media company.
  *
+ * Quake3e GPL Source Code (Vulkan backend integration)
+ * Copyright (C) 2016 Eugene
+ *
  * ET: Legacy
  * Copyright (C) 2012-2024 ET:Legacy team <mail@etlegacy.com>
  *
@@ -85,8 +88,9 @@ void R_RenderShadowEdges(void)
 	int c, c2;
 	int j, k;
 	int i2;
-	// int c_edges = 0, c_rejected = 0;  // TODO: remove ?
 	int hit[2];
+
+	tess.numIndexes = 0;
 
 	// an edge is NOT a silhouette edge if its face doesn't face the light,
 	// or if it has a reverse paired edge that also faces the light.
@@ -120,20 +124,20 @@ void R_RenderShadowEdges(void)
 			// triangle, it is a sil edge
 			if (hit[1] == 0)
 			{
-				glBegin(GL_TRIANGLE_STRIP);
-				glVertex3fv(tess.xyz[i]);
-				glVertex3fv(tess.xyz[i + tess.numVertexes]);
-				glVertex3fv(tess.xyz[i2]);
-				glVertex3fv(tess.xyz[i2 + tess.numVertexes]);
-				glEnd();
-				// c_edges++;
+				if (tess.numIndexes > SHADER_MAX_INDEXES - 6)
+				{
+					return;
+				}
+
+				// two triangles per edge, same winding as Quake3e
+				tess.indexes[tess.numIndexes + 0] = i;
+				tess.indexes[tess.numIndexes + 1] = i2;
+				tess.indexes[tess.numIndexes + 2] = i + tess.numVertexes;
+				tess.indexes[tess.numIndexes + 3] = i2;
+				tess.indexes[tess.numIndexes + 4] = i2 + tess.numVertexes;
+				tess.indexes[tess.numIndexes + 5] = i + tess.numVertexes;
+				tess.numIndexes                  += 6;
 			}
-			/*
-			else
-			{
-			    c_rejected++;
-			}
-			*/
 		}
 	}
 }
@@ -215,47 +219,36 @@ void RB_ShadowTessEnd(void)
 	}
 
 
-	// draw the silhouette edges
+	R_RenderShadowEdges();
 
+	// draw the silhouette edges, the stencil operations are part of the pipelines
+	tess.numVertexes *= 2;
+
+	for (i = 0; i < tess.numVertexes; i++)
+	{
+		tess.svars.colors[i][0] = 50;
+		tess.svars.colors[i][1] = 50;
+		tess.svars.colors[i][2] = 50;
+		tess.svars.colors[i][3] = 255;
+	}
+
+	GL_SelectTexture(0);
 	GL_Bind(tr.whiteImage);
-	glEnable(GL_CULL_FACE);
-	GL_State(GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO);
-	glColor3f(0.2f, 0.2f, 0.2f);
 
-	// don't write to the color buffer
-	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-
-	glEnable(GL_STENCIL_TEST);
-	glStencilFunc(GL_ALWAYS, 1, 255);
-
-	// mirrors have the culling order reversed
-	if (backEnd.viewParms.isMirror)
 	{
-		glCullFace(GL_FRONT);
-		glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+		// mirrors have the culling order reversed
+		const int mirror = backEnd.viewParms.isMirror ? 1 : 0;
 
-		R_RenderShadowEdges();
-
-		glCullFace(GL_BACK);
-		glStencilOp(GL_KEEP, GL_KEEP, GL_DECR);
-
-		R_RenderShadowEdges();
-	}
-	else
-	{
-		glCullFace(GL_BACK);
-		glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-
-		R_RenderShadowEdges();
-
-		glCullFace(GL_FRONT);
-		glStencilOp(GL_KEEP, GL_KEEP, GL_DECR);
-
-		R_RenderShadowEdges();
+		vk_bind_pipeline(vk.shadow_volume_pipelines[0][mirror]); // back-sided
+		vk_bind_index();
+		vk_bind_geometry(TESS_XYZ | TESS_RGBA0);
+		vk_draw_geometry(DEPTH_RANGE_NORMAL, qtrue);
+		vk_bind_pipeline(vk.shadow_volume_pipelines[1][mirror]); // front-sided
+		vk_draw_geometry(DEPTH_RANGE_NORMAL, qtrue);
 	}
 
-	// reenable writing to the color buffer
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	tess.numVertexes /= 2;
+	tess.numIndexes   = 0;
 }
 
 /**
@@ -267,6 +260,16 @@ void RB_ShadowTessEnd(void)
  */
 void RB_ShadowFinish(void)
 {
+	static const vec3_t verts[4] =
+	{
+		{ -100, 100,  -10 },
+		{ 100,  100,  -10 },
+		{ -100, -100, -10 },
+		{ 100,  -100, -10 }
+	};
+	float tmp[16];
+	int   i;
+
 	if (r_shadows->integer != 2)
 	{
 		return;
@@ -275,28 +278,41 @@ void RB_ShadowFinish(void)
 	{
 		return;
 	}
-	glEnable(GL_STENCIL_TEST);
-	glStencilFunc(GL_NOTEQUAL, 0, 255);
 
-	glDisable(GL_CLIP_PLANE0);
-	glDisable(GL_CULL_FACE);
-
+	GL_SelectTexture(0);
 	GL_Bind(tr.whiteImage);
 
-	glLoadIdentity();
+	for (i = 0; i < 4; i++)
+	{
+		VectorCopy(verts[i], tess.xyz[i]);
+		tess.svars.colors[i][0] = 153;
+		tess.svars.colors[i][1] = 153;
+		tess.svars.colors[i][2] = 153;
+		tess.svars.colors[i][3] = 255;
+	}
 
-	glColor3f(0.6f, 0.6f, 0.6f);
-	GL_State(GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO);
+	tess.numVertexes = 4;
 
-	glBegin(GL_QUADS);
-	glVertex3f(-100, 100, -10);
-	glVertex3f(100, 100, -10);
-	glVertex3f(100, -100, -10);
-	glVertex3f(-100, -100, -10);
-	glEnd();
+	// identity model view
+	Com_Memcpy(tmp, vk_world.modelview_transform, sizeof(tmp));
+	Com_Memset(vk_world.modelview_transform, 0, sizeof(vk_world.modelview_transform));
+	vk_world.modelview_transform[0]  = 1.0f;
+	vk_world.modelview_transform[5]  = 1.0f;
+	vk_world.modelview_transform[10] = 1.0f;
+	vk_world.modelview_transform[15] = 1.0f;
 
-	glColor4f(1, 1, 1, 1);
-	glDisable(GL_STENCIL_TEST);
+	vk_bind_pipeline(vk.shadow_finish_pipeline);
+
+	vk_update_mvp(NULL);
+
+	vk_bind_geometry(TESS_XYZ | TESS_RGBA0);
+	vk_draw_geometry(DEPTH_RANGE_NORMAL, qfalse);
+
+	Com_Memcpy(vk_world.modelview_transform, tmp, sizeof(tmp));
+	vk_update_mvp(NULL);
+
+	tess.numIndexes  = 0;
+	tess.numVertexes = 0;
 }
 
 /**

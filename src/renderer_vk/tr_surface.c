@@ -624,15 +624,24 @@ void RB_SurfaceBeam(void)
 
 	GL_State(GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE);
 
-	glColor3f(1, 0, 0);
+	tess.numIndexes  = 0;
+	tess.numVertexes = 0;
 
-	glBegin(GL_TRIANGLE_STRIP);
 	for (i = 0; i <= NUM_BEAM_SEGS; i++)
 	{
-		glVertex3fv(start_points[i % NUM_BEAM_SEGS]);
-		glVertex3fv(end_points[i % NUM_BEAM_SEGS]);
+		VectorCopy(start_points[i % NUM_BEAM_SEGS], tess.xyz[i * 2 + 0]);
+		VectorCopy(end_points[i % NUM_BEAM_SEGS], tess.xyz[i * 2 + 1]);
 	}
-	glEnd();
+	tess.numVertexes = (NUM_BEAM_SEGS + 1) * 2;
+
+	{
+		const vec4_t red = { 1, 0, 0, 1 };
+
+		RB_DrawDebugPrimitives(TRIANGLE_STRIP, red, tess.depthRange);
+	}
+
+	tess.numIndexes  = 0;
+	tess.numVertexes = 0;
 }
 
 //================================================================================
@@ -1729,21 +1738,24 @@ NULL MODEL
  */
 void RB_SurfaceAxis(void)
 {
-	GL_Bind(tr.whiteImage);
+	const vec4_t colors[3] = { { 1, 0, 0, 1 }, { 0, 1, 0, 1 }, { 0, 0, 1, 1 } };
+	int          i;
+
+	tess.numIndexes = 0;
+
 	GL_State(GLS_DEFAULT);
-	glLineWidth(3);
-	glBegin(GL_LINES);
-	glColor3f(1, 0, 0);
-	glVertex3f(0, 0, 0);
-	glVertex3f(16, 0, 0);
-	glColor3f(0, 1, 0);
-	glVertex3f(0, 0, 0);
-	glVertex3f(0, 16, 0);
-	glColor3f(0, 0, 1);
-	glVertex3f(0, 0, 0);
-	glVertex3f(0, 0, 16);
-	glEnd();
-	glLineWidth(1);
+
+	for (i = 0; i < 3; i++)
+	{
+		VectorClear(tess.xyz[0]);
+		VectorClear(tess.xyz[1]);
+		tess.xyz[1][i]   = 16.0f;
+		tess.numVertexes = 2;
+
+		RB_DrawDebugPrimitives(LINE_LIST, colors[i], tess.depthRange);
+	}
+
+	tess.numVertexes = 0;
 }
 
 //===========================================================================
@@ -1870,9 +1882,7 @@ void RB_SurfaceFlare(srfFlare_t *surf)
  */
 void RB_SurfaceDisplayList(srfDisplayList_t *surf)
 {
-	// all apropriate state must be set in RB_BeginSurface
-	// this isn't implemented yet...
-	glCallList(surf->listNum);
+	// display lists are not supported, they are never created anyway
 }
 
 /**

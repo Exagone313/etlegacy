@@ -1,3 +1,4 @@
+// Ported from Quake3e (code/renderervk/shaders), GPLv2+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

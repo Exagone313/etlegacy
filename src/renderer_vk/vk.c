@@ -1,3 +1,44 @@
+/*
+ * Wolfenstein: Enemy Territory GPL Source Code
+ * Copyright (C) 1999-2010 id Software LLC, a ZeniMax Media company.
+ *
+ * Quake-III-Arena-Kenny-Edition GPL Source Code
+ * Copyright (C) Artem Kharytoniuk
+ *
+ * Quake3e GPL Source Code
+ * Copyright (C) 2016 Eugene
+ *
+ * ET: Legacy
+ * Copyright (C) 2012-2024 ET:Legacy team <mail@etlegacy.com>
+ *
+ * This file is part of ET: Legacy - http://www.etlegacy.com
+ *
+ * ET: Legacy is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * ET: Legacy is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with ET: Legacy. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * In addition, Wolfenstein: Enemy Territory GPL Source Code is also
+ * subject to certain additional terms. You should have received a copy
+ * of these additional terms immediately following the terms and conditions
+ * of the GNU General Public License which accompanied the source code.
+ * If not, please request a copy in writing from id Software at the address below.
+ *
+ * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
+ */
+/**
+ * @file renderer_vk/vk.c
+ * @brief Vulkan backend, ported from Quake3e (code/renderervk)
+ */
+
 #include "tr_local.h"
 #include "vk.h"
 
@@ -515,7 +556,7 @@ static void vk_create_swapchain( VkPhysicalDevice physical_device, VkDevice devi
 	// determine present mode and swapchain image count
 	VK_CHECK(qvkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, NULL));
 
-	present_modes = (VkPresentModeKHR *) ri.Malloc( present_mode_count * sizeof( VkPresentModeKHR ) );
+	present_modes = (VkPresentModeKHR *) ri.Z_Malloc( present_mode_count * sizeof( VkPresentModeKHR ) );
 	VK_CHECK(qvkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, present_modes));
 
 	if ( verbose ) {
@@ -1308,8 +1349,8 @@ static void create_instance( void )
 	extension_count = 0;
 	VK_CHECK(qvkEnumerateInstanceExtensionProperties(NULL, &count, NULL));
 
-	extension_properties = (VkExtensionProperties *)ri.Malloc(sizeof(VkExtensionProperties) * count);
-	extension_names = (const char**)ri.Malloc(sizeof(char *) * count);
+	extension_properties = (VkExtensionProperties *)ri.Z_Malloc(sizeof(VkExtensionProperties) * count);
+	extension_names = (const char**)ri.Z_Malloc(sizeof(char *) * count);
 
 	VK_CHECK( qvkEnumerateInstanceExtensionProperties( NULL, &count, extension_properties ) );
 	for ( i = 0; i < count; i++ ) {
@@ -1510,7 +1551,7 @@ static qboolean vk_select_surface_format( VkPhysicalDevice physical_device, VkSu
 		return qfalse;
 	}
 
-	candidates = (VkSurfaceFormatKHR*)ri.Malloc( format_count * sizeof(VkSurfaceFormatKHR) );
+	candidates = (VkSurfaceFormatKHR*)ri.Z_Malloc( format_count * sizeof(VkSurfaceFormatKHR) );
 
 	VK_CHECK( qvkGetPhysicalDeviceSurfaceFormatsKHR( physical_device, surface, &format_count, candidates ) );
 
@@ -1625,7 +1666,7 @@ static qboolean vk_create_device( VkPhysicalDevice physical_device, int device_i
 		uint32_t i;
 
 		qvkGetPhysicalDeviceQueueFamilyProperties( physical_device, &queue_family_count, NULL );
-		queue_families = (VkQueueFamilyProperties*)ri.Malloc( queue_family_count * sizeof( VkQueueFamilyProperties ) );
+		queue_families = (VkQueueFamilyProperties*)ri.Z_Malloc( queue_family_count * sizeof( VkQueueFamilyProperties ) );
 		qvkGetPhysicalDeviceQueueFamilyProperties( physical_device, &queue_family_count, queue_families );
 
 		// select queue family with presentation and graphics support
@@ -1676,7 +1717,7 @@ static qboolean vk_create_device( VkPhysicalDevice physical_device, int device_i
 		uint32_t i, len, count = 0;
 
 		VK_CHECK( qvkEnumerateDeviceExtensionProperties( physical_device, NULL, &count, NULL ) );
-		extension_properties = (VkExtensionProperties*)ri.Malloc( count * sizeof( VkExtensionProperties ) );
+		extension_properties = (VkExtensionProperties*)ri.Z_Malloc( count * sizeof( VkExtensionProperties ) );
 		VK_CHECK( qvkEnumerateDeviceExtensionProperties( physical_device, NULL, &count, extension_properties ) );
 
 		// fill glConfig.extensions_string
@@ -1795,7 +1836,7 @@ static qboolean vk_create_device( VkPhysicalDevice physical_device, int device_i
 			vk.fragmentStores = qtrue;
 		}
 
-		if ( r_ext_texture_filter_anisotropic->integer && device_features.samplerAnisotropy ) {
+		if ( r_extTextureFilterAnisotropic->integer && device_features.samplerAnisotropy ) {
 			features.samplerAnisotropy = VK_TRUE;
 			vk.samplerAnisotropy = qtrue;
 		}
@@ -1983,7 +2024,7 @@ static void init_vulkan_library( void )
 		return;
 	}
 
-	physical_devices = (VkPhysicalDevice*)ri.Malloc( device_count * sizeof( VkPhysicalDevice ) );
+	physical_devices = (VkPhysicalDevice*)ri.Z_Malloc( device_count * sizeof( VkPhysicalDevice ) );
 	VK_CHECK( qvkEnumeratePhysicalDevices( vk_instance, &device_count, physical_devices ) );
 
 	// initial physical device index
@@ -2387,9 +2428,9 @@ static VkSampler vk_find_sampler( const Vk_Sampler_Def *def ) {
 		desc.anisotropyEnable = VK_FALSE;
 		desc.maxAnisotropy = 1.0f;
 	} else {
-		desc.anisotropyEnable = (r_ext_texture_filter_anisotropic->integer && vk.samplerAnisotropy) ? VK_TRUE : VK_FALSE;
+		desc.anisotropyEnable = (r_extTextureFilterAnisotropic->integer && vk.samplerAnisotropy) ? VK_TRUE : VK_FALSE;
 		if ( desc.anisotropyEnable ) {
-			desc.maxAnisotropy = MIN( r_ext_max_anisotropy->integer, vk.maxAnisotropy );
+			desc.maxAnisotropy = MIN( r_extMaxAnisotropy->integer, vk.maxAnisotropy );
 		}
 	}
 
@@ -4069,15 +4110,15 @@ void vk_initialize( void )
 	vk.maxLod = 1 + Q_log2( glConfig.maxTextureSize );
 
 	if ( props.limits.maxPerStageDescriptorSamplers != 0xFFFFFFFF )
-		glConfig.numTextureUnits = props.limits.maxPerStageDescriptorSamplers;
+		glConfig.maxActiveTextures = props.limits.maxPerStageDescriptorSamplers;
 	else
-		glConfig.numTextureUnits = props.limits.maxBoundDescriptorSets;
-	if ( glConfig.numTextureUnits > MAX_TEXTURE_UNITS )
-		glConfig.numTextureUnits = MAX_TEXTURE_UNITS;
+		glConfig.maxActiveTextures = props.limits.maxBoundDescriptorSets;
+	if ( glConfig.maxActiveTextures > MAX_TEXTURE_UNITS )
+		glConfig.maxActiveTextures = MAX_TEXTURE_UNITS;
 
 	vk.maxBoundDescriptorSets = props.limits.maxBoundDescriptorSets;
 
-	if ( r_ext_texture_env_add->integer != 0 )
+	if ( r_extTextureEnvAdd->integer != 0 )
 		glConfig.textureEnvAddAvailable = qtrue;
 	else
 		glConfig.textureEnvAddAvailable = qfalse;
@@ -5043,7 +5084,8 @@ void vk_update_descriptor_set( image_t *image, qboolean mipmap ) {
 
 	Com_Memset( &sampler_def, 0, sizeof( sampler_def ) );
 
-	sampler_def.address_mode = image->wrapClampMode;
+	// ET:L keeps the GL wrap mode in the image
+	sampler_def.address_mode = ( image->wrapClampMode == GL_REPEAT ) ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
 	if ( mipmap ) {
 		sampler_def.gl_mag_filter = gl_filter_max;
@@ -5229,7 +5271,7 @@ void vk_create_post_process_pipeline( int program_index, uint32_t width, uint32_
 
 	frag_spec_data.gamma = 1.0 / (r_gamma->value);
 	frag_spec_data.overbright = (float)(1 << tr.overbrightBits);
-	frag_spec_data.greyscale = r_greyscale->value;
+	frag_spec_data.greyscale = r_greyScale->value;
 	frag_spec_data.bloom_threshold = r_bloom_threshold->value;
 	frag_spec_data.bloom_intensity = r_bloom_intensity->value;
 	frag_spec_data.bloom_threshold_mode = r_bloom_threshold_mode->integer;
@@ -6710,27 +6752,17 @@ static void get_viewport(VkViewport *viewport, Vk_Depth_Range depth_range) {
 
 static void get_scissor_rect(VkRect2D *r) {
 
-	if ( backEnd.viewParms.portalView != PV_NONE )
-	{
-		r->offset.x = backEnd.viewParms.scissorX;
-		r->offset.y = glConfig.vidHeight - backEnd.viewParms.scissorY - backEnd.viewParms.scissorHeight;
-		r->extent.width = backEnd.viewParms.scissorWidth;
-		r->extent.height = backEnd.viewParms.scissorHeight;
-	}
-	else
-	{
-		get_viewport_rect(r);
+	get_viewport_rect(r);
 
-		if (r->offset.x < 0)
-			r->offset.x = 0;
-		if (r->offset.y < 0)
-			r->offset.y = 0;
+	if (r->offset.x < 0)
+		r->offset.x = 0;
+	if (r->offset.y < 0)
+		r->offset.y = 0;
 
-		if (r->offset.x + r->extent.width > glConfig.vidWidth)
-			r->extent.width = glConfig.vidWidth - r->offset.x;
-		if (r->offset.y + r->extent.height > glConfig.vidHeight)
-			r->extent.height = glConfig.vidHeight - r->offset.y;
-	}
+	if (r->offset.x + r->extent.width > glConfig.vidWidth)
+		r->extent.width = glConfig.vidWidth - r->offset.x;
+	if (r->offset.y + r->extent.height > glConfig.vidHeight)
+		r->extent.height = glConfig.vidHeight - r->offset.y;
 }
 
 
@@ -6997,7 +7029,7 @@ void vk_bind_geometry( uint32_t flags )
 		}
 
 		if ( flags & TESS_RGBA0 ) {
-			vk_bind_attr(1, sizeof( color4ub_t ), tess.svars.colors[0][0].rgba);
+			vk_bind_attr(1, sizeof( color4ub_t ), tess.svars.colors[0]);
 		}
 
 		if ( flags & TESS_ST0 ) {
@@ -7009,7 +7041,7 @@ void vk_bind_geometry( uint32_t flags )
 		}
 
 		if ( flags & TESS_ST2 ) {
-			vk_bind_attr(4, sizeof( vec2_t ), tess.svars.texcoordPtr[2]);
+			vk_bind_attr(4, sizeof( vec2_t ), tess.svars.texcoordPtr[1]);
 		}
 
 		if ( flags & TESS_NNN ) {
@@ -7017,11 +7049,11 @@ void vk_bind_geometry( uint32_t flags )
 		}
 
 		if ( flags & TESS_RGBA1 ) {
-			vk_bind_attr(6, sizeof( color4ub_t ), tess.svars.colors[1][0].rgba);
+			vk_bind_attr(6, sizeof( color4ub_t ), tess.svars.colors[0]);
 		}
 
 		if ( flags & TESS_RGBA2 ) {
-			vk_bind_attr(7, sizeof( color4ub_t ), tess.svars.colors[2][0].rgba);
+			vk_bind_attr(7, sizeof( color4ub_t ), tess.svars.colors[0]);
 		}
 
 		qvkCmdBindVertexBuffers( vk.cmd->command_buffer, bind_base, bind_count, shade_bufs, vk.cmd->buf_offset + bind_base );
@@ -7325,24 +7357,8 @@ void vk_end_render_pass( void )
 
 static qboolean vk_find_screenmap_drawsurfs( void )
 {
-	const void *curCmd = &backEndData->commands.cmds;
-	const drawBufferCommand_t *db_cmd;
-	const drawSurfsCommand_t *ds_cmd;
-
-	for ( ;; ) {
-		curCmd = PADP( curCmd, sizeof(void *) );
-		switch ( *(const int *)curCmd ) {
-			case RC_DRAW_BUFFER:
-				db_cmd = (const drawBufferCommand_t *)curCmd;
-				curCmd = (const void *)(db_cmd + 1);
-				break;
-			case RC_DRAW_SURFS:
-				ds_cmd = (const drawSurfsCommand_t *)curCmd;
-				return ds_cmd->refdef.needScreenMap;
-			default:
-				return qfalse;
-		}
-	}
+	// screen map textures are not used by ET shaders
+	return qfalse;
 }
 
 

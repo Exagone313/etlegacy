@@ -76,6 +76,19 @@ extern cvar_t *r_gfxInfo;
 
 extern cvar_t *r_scale;
 
+// Vulkan
+extern cvar_t *r_device;
+extern cvar_t *r_hdr;
+extern cvar_t *r_bloom;
+extern cvar_t *r_bloom_threshold;
+extern cvar_t *r_bloom_threshold_mode;
+extern cvar_t *r_bloom_intensity;
+extern cvar_t *r_bloom_modulate;
+extern cvar_t *r_dither;
+extern cvar_t *r_presentBits;
+extern cvar_t *r_renderScale;
+extern cvar_t *r_ext_supersample;
+
 extern cvar_t *r_screenshotFormat;
 extern cvar_t *r_screenshotJpegQuality;
 

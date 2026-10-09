@@ -1,4 +1,8 @@
 #version 450
+// Ported from Quake3e (code/renderervk/shaders), GPLv2+
+// Copyright (C) Artem Kharytoniuk (Quake-III-Arena-Kenny-Edition)
+// Copyright (C) 2016 Eugene (Quake3e)
+// Part of ET: Legacy, licensed under the GNU GPL version 3 or later
 
 layout(set = 0, binding = 0) uniform sampler2D texture0;
 layout(set = 1, binding = 0) uniform sampler2D texture1;

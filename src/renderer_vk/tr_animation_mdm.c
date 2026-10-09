@@ -1897,32 +1897,29 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 				GL_Bind(tr.whiteImage);
 				if (r_bonesDebug->integer != 9)
 				{
-					glLineWidth(1);
-					glBegin(GL_LINES);
+					RB_DebugBegin(LINE_LIST);
 					for (j = 0; j < 3; j++)
 					{
 						VectorClear(vec);
 						vec[j] = 1;
-						glColor3fv(vec);
-						glVertex3fv(bonePtr->translation);
+						RB_DebugColor(vec[0], vec[1], vec[2], 1.f);
+						RB_DebugVertex(bonePtr->translation);
 						VectorMA(bonePtr->translation, (r_bonesDebug->integer == 8 ? 1.5f : 5), bonePtr->matrix[j], vec);
-						glVertex3fv(vec);
+						RB_DebugVertex(vec);
 					}
-					glEnd();
+					RB_DebugEnd();
 				}
 
 				// connect to our parent if it's valid
 				if (validBones[boneInfo[*boneRefs].parent])
 				{
-					glLineWidth(r_bonesDebug->integer == 8 ? 4 : 2);
-					glBegin(GL_LINES);
-					glColor3f(.6f, .6f, .6f);
-					glVertex3fv(bonePtr->translation);
-					glVertex3fv(bones[boneInfo[*boneRefs].parent].translation);
-					glEnd();
+					RB_DebugBegin(LINE_LIST);
+					RB_DebugColor(.6f, .6f, .6f, 1.f);
+					RB_DebugVertex(bonePtr->translation);
+					RB_DebugVertex(bones[boneInfo[*boneRefs].parent].translation);
+					RB_DebugEnd();
 				}
 
-				glLineWidth(1);
 			}
 
 			if (r_bonesDebug->integer == 8)
@@ -1932,8 +1929,7 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 				mdxHeader_t *mdxHeader = R_GetModelByHandle(refent->frameModel)->model.mdx;
 				boneRefs = ( int * )((byte *)surface + surface->ofsBoneReferences);
 
-				glDepthRange(0, 0);        // never occluded
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+				RB_DebugDepthRange(DEPTH_RANGE_ZERO);        // never occluded
 
 				for (i = 0; i < surface->numBoneReferences; i++, boneRefs++)
 				{
@@ -1948,18 +1944,18 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 					vec[1] = vec[1] + diff[1] * 6;
 					vec[2] = vec[2] + diff[2] * 3;
 
-					glEnable(GL_BLEND);
-					glBegin(GL_LINES);
-					glColor4f(1.f, .4f, .05f, .35f);
-					glVertex3fv(bonePtr->translation);
-					glVertex3fv(vec);
-					glEnd();
-					glDisable(GL_BLEND);
+					RB_DebugBlend(qtrue);
+					RB_DebugBegin(LINE_LIST);
+					RB_DebugColor(1.f, .4f, .05f, .35f);
+					RB_DebugVertex(bonePtr->translation);
+					RB_DebugVertex(vec);
+					RB_DebugEnd();
+					RB_DebugBlend(qfalse);
 
 					R_DebugText(vec, 1.f, 1.f, 1.f, mdxBoneInfo->name, qfalse);         // qfalse, as there is no reason to set depthrange again
 				}
 
-				glDepthRange(0, 1);
+				RB_DebugDepthRange(DEPTH_RANGE_NORMAL);
 				//}
 			}
 			else if (r_bonesDebug->integer == 9)
@@ -1968,8 +1964,7 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 				{
 					mdmTag_t *pTag = ( mdmTag_t * )((byte *)header + header->ofsTags);
 
-					glDepthRange(0, 0);    // never occluded
-					glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+					RB_DebugDepthRange(DEPTH_RANGE_ZERO);    // never occluded
 
 					for (i = 0; i < header->numTags; i++)
 					{
@@ -1987,18 +1982,17 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 						}
 
 						GL_Bind(tr.whiteImage);
-						glLineWidth(2);
-						glBegin(GL_LINES);
+						RB_DebugBegin(LINE_LIST);
 						for (j = 0; j < 3; j++)
 						{
 							VectorClear(vec);
 							vec[j] = 1;
-							glColor3fv(vec);
-							glVertex3fv(outTag.origin);
+							RB_DebugColor(vec[0], vec[1], vec[2], 1.f);
+							RB_DebugVertex(outTag.origin);
 							VectorMA(outTag.origin, 5, outTag.axis[j], vec);
-							glVertex3fv(vec);
+							RB_DebugVertex(vec);
 						}
-						glEnd();
+						RB_DebugEnd();
 
 						VectorSet(vec, 0.f, 0.f, 32.f);
 						VectorSubtract(outTag.origin, vec, diff);
@@ -2006,20 +2000,19 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 						vec[1] = vec[1] + diff[1] * 2;
 						vec[2] = vec[2] + diff[2] * 1.5f;
 
-						glLineWidth(1);
-						glEnable(GL_BLEND);
-						glBegin(GL_LINES);
-						glColor4f(1.f, .4f, .05f, .35f);
-						glVertex3fv(outTag.origin);
-						glVertex3fv(vec);
-						glEnd();
-						glDisable(GL_BLEND);
+						RB_DebugBlend(qtrue);
+						RB_DebugBegin(LINE_LIST);
+						RB_DebugColor(1.f, .4f, .05f, .35f);
+						RB_DebugVertex(outTag.origin);
+						RB_DebugVertex(vec);
+						RB_DebugEnd();
+						RB_DebugBlend(qfalse);
 
 						R_DebugText(vec, 1.f, 1.f, 1.f, pTag->name, qfalse);    // qfalse, as there is no reason to set depthrange again
 
 						pTag = ( mdmTag_t * )((byte *)pTag + pTag->ofsEnd);
 					}
-					glDepthRange(0, 1);
+					RB_DebugDepthRange(DEPTH_RANGE_NORMAL);
 				}
 			}
 		}
@@ -2033,24 +2026,23 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 			tempNormal = ( float * )(tess.normal + baseVertex);
 
 			GL_Bind(tr.whiteImage);
-			glLineWidth(1);
-			glBegin(GL_LINES);
-			glColor3f(.0, .0, .8f);
+			RB_DebugBegin(LINE_LIST);
+			RB_DebugColor(.0, .0, .8f, 1.f);
 
 			pIndexes = &tess.indexes[oldIndexes];
 			for (j = 0; j < render_indexes / 3; j++, pIndexes += 3)
 			{
-				glVertex3fv(tempVert + 4 * pIndexes[0]);
-				glVertex3fv(tempVert + 4 * pIndexes[1]);
+				RB_DebugVertex(tempVert + 4 * pIndexes[0]);
+				RB_DebugVertex(tempVert + 4 * pIndexes[1]);
 
-				glVertex3fv(tempVert + 4 * pIndexes[1]);
-				glVertex3fv(tempVert + 4 * pIndexes[2]);
+				RB_DebugVertex(tempVert + 4 * pIndexes[1]);
+				RB_DebugVertex(tempVert + 4 * pIndexes[2]);
 
-				glVertex3fv(tempVert + 4 * pIndexes[2]);
-				glVertex3fv(tempVert + 4 * pIndexes[0]);
+				RB_DebugVertex(tempVert + 4 * pIndexes[2]);
+				RB_DebugVertex(tempVert + 4 * pIndexes[0]);
 			}
 
-			glEnd();
+			RB_DebugEnd();
 
 
 			if (r_bonesDebug->integer == 4) // track debug stats
@@ -2073,29 +2065,28 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
 			v        = ( mdmVertex_t * )((byte *)surface + surface->ofsVerts);
 			tempVert = ( float * )(tess.xyz + baseVertex);
 			GL_Bind(tr.whiteImage);
-			glPointSize(5);
-			glBegin(GL_POINTS);
+			RB_DebugBegin(POINT_LIST);
 			for (j = 0; j < render_count; j++, tempVert += 4)
 			{
 				if (v->numWeights > 1)
 				{
 					if (v->numWeights == 2)
 					{
-						glColor3f(.4f, .4f, 0.f);
+						RB_DebugColor(.4f, .4f, 0.f, 1.f);
 					}
 					else if (v->numWeights == 3)
 					{
-						glColor3f(.8f, .4f, 0.f);
+						RB_DebugColor(.8f, .4f, 0.f, 1.f);
 					}
 					else
 					{
-						glColor3f(1.f, .4f, 0.f);
+						RB_DebugColor(1.f, .4f, 0.f, 1.f);
 					}
-					glVertex3fv(tempVert);
+					RB_DebugVertex(tempVert);
 				}
 				v = (mdmVertex_t *)&v->weights[v->numWeights];
 			}
-			glEnd();
+			RB_DebugEnd();
 		}
 	}
 
@@ -2109,9 +2100,8 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
         // show model bounds
         GL_Bind( tr.whiteImage );
         GL_State( GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE );
-        glLineWidth( 1 );
-        glColor3f( .0,.8,.0 );
-        glBegin( GL_LINES );
+        RB_DebugColor(.0, .8, .0, 1.f);
+        RB_DebugBegin(LINE_LIST);
 
         VectorSubtract( mdxFrame->bounds[0], mdxFrame->bounds[1], diff);
 
@@ -2121,12 +2111,12 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
         v1[0] -= diff[0];
         v2[1] -= diff[1];
         v3[2] -= diff[2];
-        glVertex3fv( mdxFrame->bounds[0] );
-        glVertex3fv( v1 );
-        glVertex3fv( mdxFrame->bounds[0] );
-        glVertex3fv( v2 );
-        glVertex3fv( mdxFrame->bounds[0] );
-        glVertex3fv( v3 );
+        RB_DebugVertex( mdxFrame->bounds[0] );
+        RB_DebugVertex( v1 );
+        RB_DebugVertex( mdxFrame->bounds[0] );
+        RB_DebugVertex( v2 );
+        RB_DebugVertex( mdxFrame->bounds[0] );
+        RB_DebugVertex( v3 );
 
         VectorCopy( mdxFrame->bounds[1], v4 );
         VectorCopy( mdxFrame->bounds[1], v5 );
@@ -2134,28 +2124,28 @@ void RB_MDM_SurfaceAnim(mdmSurface_t *surface)
         v4[0] += diff[0];
         v5[1] += diff[1];
         v6[2] += diff[2];
-        glVertex3fv( mdxFrame->bounds[1] );
-        glVertex3fv( v4 );
-        glVertex3fv( mdxFrame->bounds[1] );
-        glVertex3fv( v5 );
-        glVertex3fv( mdxFrame->bounds[1] );
-        glVertex3fv( v6 );
+        RB_DebugVertex( mdxFrame->bounds[1] );
+        RB_DebugVertex( v4 );
+        RB_DebugVertex( mdxFrame->bounds[1] );
+        RB_DebugVertex( v5 );
+        RB_DebugVertex( mdxFrame->bounds[1] );
+        RB_DebugVertex( v6 );
 
-        glVertex3fv( v2 );
-        glVertex3fv( v6 );
-        glVertex3fv( v6 );
-        glVertex3fv( v1 );
-        glVertex3fv( v1 );
-        glVertex3fv( v5 );
+        RB_DebugVertex( v2 );
+        RB_DebugVertex( v6 );
+        RB_DebugVertex( v6 );
+        RB_DebugVertex( v1 );
+        RB_DebugVertex( v1 );
+        RB_DebugVertex( v5 );
 
-        glVertex3fv( v2 );
-        glVertex3fv( v4 );
-        glVertex3fv( v4 );
-        glVertex3fv( v3 );
-        glVertex3fv( v3 );
-        glVertex3fv( v5 );
+        RB_DebugVertex( v2 );
+        RB_DebugVertex( v4 );
+        RB_DebugVertex( v4 );
+        RB_DebugVertex( v3 );
+        RB_DebugVertex( v3 );
+        RB_DebugVertex( v5 );
 
-        glEnd();
+        RB_DebugEnd();
     }*/
 
 	if (r_bonesDebug->integer > 1)

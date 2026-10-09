@@ -160,6 +160,19 @@ cvar_t *r_gfxInfo;
 
 cvar_t *r_scale;
 
+// Vulkan
+cvar_t *r_device;
+cvar_t *r_hdr;
+cvar_t *r_bloom;
+cvar_t *r_bloom_threshold;
+cvar_t *r_bloom_threshold_mode;
+cvar_t *r_bloom_intensity;
+cvar_t *r_bloom_modulate;
+cvar_t *r_dither;
+cvar_t *r_presentBits;
+cvar_t *r_renderScale;
+cvar_t *r_ext_supersample;
+
 /**
  * @brief R_Register
  */
@@ -242,6 +255,21 @@ void R_Register(void)
 	r_cacheShaders = ri.Cvar_Get("r_cacheShaders", "1", CVAR_LATCH);
 
 	r_cacheModels    = ri.Cvar_Get("r_cacheModels", "1", CVAR_LATCH);
+
+	// Vulkan images and descriptors are released on every shutdown, the media cache can't
+	// be kept across renderer restarts. Use a disabled copy instead of changing the shared cvars.
+	{
+		static cvar_t cacheDisabled;
+
+		cacheDisabled.name    = "r_cache";
+		cacheDisabled.string  = "0";
+		cacheDisabled.value   = 0.f;
+		cacheDisabled.integer = 0;
+
+		r_cache        = &cacheDisabled;
+		r_cacheShaders = &cacheDisabled;
+		r_cacheModels  = &cacheDisabled;
+	}
 	r_cacheGathering = ri.Cvar_Get("cl_cacheGathering", "0", 0);
 	r_bonesDebug     = ri.Cvar_Get("r_bonesDebug", "0", CVAR_CHEAT);
 
@@ -347,6 +375,47 @@ void R_Register(void)
 
 	r_scale = ri.Cvar_Get("r_scale", "1", CVAR_ARCHIVE | CVAR_LATCH);
 
+	// Vulkan
+	r_device = ri.Cvar_Get("r_device", "-1", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_device, -2, 32, qtrue);
+	ri.Cvar_SetDescription(r_device, "Select physical device to render: 0+ explicit device index, -1 first discrete GPU, -2 first integrated GPU");
+	r_device->modified = qfalse;
+
+	r_hdr = ri.Cvar_Get("r_hdr", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_hdr, -1, 1, qtrue);
+	ri.Cvar_SetDescription(r_hdr, "Frame buffer color format, requires r_fbo 1: -1 4-bit (testing), 0 8-bit, 1 16-bit");
+
+	r_bloom = ri.Cvar_Get("r_bloom", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_bloom, 0, 1, qtrue);
+	ri.Cvar_SetDescription(r_bloom, "Enables bloom post-processing effect, requires r_fbo 1");
+
+	r_bloom_threshold = ri.Cvar_Get("r_bloom_threshold", "0.6", CVAR_ARCHIVE_ND);
+	ri.Cvar_SetDescription(r_bloom_threshold, "Color level to extract to bloom texture, default is 0.6");
+
+	r_bloom_threshold_mode = ri.Cvar_Get("r_bloom_threshold_mode", "0", CVAR_ARCHIVE_ND);
+	ri.Cvar_SetDescription(r_bloom_threshold_mode, "Bloom color extraction mode: 0 (r|g|b) >= threshold, 1 (r+g+b)/3 >= threshold, 2 luma(r,g,b) >= threshold");
+
+	r_bloom_intensity = ri.Cvar_Get("r_bloom_intensity", "0.5", CVAR_ARCHIVE_ND);
+	ri.Cvar_SetDescription(r_bloom_intensity, "Final bloom blend factor, default is 0.5");
+
+	r_bloom_modulate = ri.Cvar_Get("r_bloom_modulate", "0", CVAR_ARCHIVE_ND);
+	ri.Cvar_SetDescription(r_bloom_modulate, "Modulate bloom extracted color: 0 off, 1 by itself, 2 by intensity");
+
+	r_dither = ri.Cvar_Get("r_dither", "0", CVAR_ARCHIVE_ND);
+	ri.Cvar_CheckRange(r_dither, 0, 1, qtrue);
+	ri.Cvar_SetDescription(r_dither, "Ordered dithering, requires r_fbo 1");
+
+	r_presentBits = ri.Cvar_Get("r_presentBits", "24", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_presentBits, 16, 30, qtrue);
+	ri.Cvar_SetDescription(r_presentBits, "Color bits used for presentation surfaces, requires r_fbo 1");
+
+	r_renderScale = ri.Cvar_Get("r_renderScale", "0", CVAR_ROM);
+	ri.Cvar_SetDescription(r_renderScale, "Custom render resolution scaling mode (not supported yet)");
+
+	r_ext_supersample = ri.Cvar_Get("r_ext_supersample", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);
+	ri.Cvar_CheckRange(r_ext_supersample, 0, 1, qtrue);
+	ri.Cvar_SetDescription(r_ext_supersample, "Super-sample anti-aliasing, requires r_fbo 1");
+
 	// make sure all the commands added here are also
 	// removed in R_Shutdown
 	ri.Cmd_AddSystemCommand("imagelist", R_ImageList_f, "Print out the list of images loaded", NULL);
@@ -356,6 +425,7 @@ void R_Register(void)
 	ri.Cmd_AddSystemCommand("screenshot", R_ScreenShot_f, "Take a screenshot of current frame", NULL);
 	ri.Cmd_AddSystemCommand("screenshotJPEG", R_ScreenShot_f, "Take a JPEG screenshot of current frame", NULL);
 	ri.Cmd_AddSystemCommand("gfxinfo", GfxInfo_f, "Print GFX info of current system", NULL);
+	ri.Cmd_AddSystemCommand("vkinfo", VkInfo_f, "Print Vulkan backend statistics", NULL);
 	ri.Cmd_AddSystemCommand("taginfo", R_TagInfo_f, "Print the list of loaded tags", NULL);
 
 	R_RegisterCommon();

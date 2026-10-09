@@ -452,43 +452,13 @@ void RE_BeginFrame(void)
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
-	R_ClearHudFBO();
-	R_BindMainFBO();
-
-	// do overdraw measurement
+	// overdraw measurement is not supported
 	if (r_measureOverdraw->integer)
 	{
-		if (glConfig.stencilBits < 4)
-		{
-			Ren_Print("Warning: not enough stencil bits to measure overdraw: %d\n", glConfig.stencilBits);
-			ri.Cvar_Set("r_measureOverdraw", "0");
-		}
-		else if (r_shadows->integer == 2)
-		{
-			Ren_Print("Warning: stencil shadows and overdraw measurement are mutually exclusive\n");
-			ri.Cvar_Set("r_measureOverdraw", "0");
-		}
-		else
-		{
-			R_IssuePendingRenderCommands();
-			glEnable(GL_STENCIL_TEST);
-			glStencilMask(~0U);
-			glClearStencil(0U);
-			glStencilFunc(GL_ALWAYS, 0U, ~0U);
-			glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
-		}
-		r_measureOverdraw->modified = qfalse;
+		Ren_Print("Warning: r_measureOverdraw is not supported by the Vulkan renderer\n");
+		ri.Cvar_Set("r_measureOverdraw", "0");
 	}
-	else
-	{
-		// this is only reached if it was on and is now off
-		if (r_measureOverdraw->modified)
-		{
-			R_IssuePendingRenderCommands();
-			glDisable(GL_STENCIL_TEST);
-		}
-		r_measureOverdraw->modified = qfalse;
-	}
+	r_measureOverdraw->modified = qfalse;
 
 	// texturemode stuff
 	if (r_textureMode->modified)

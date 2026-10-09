@@ -41,15 +41,17 @@
 #include "../renderercommon/tr_public.h"
 #include "../renderercommon/tr_common.h"
 
-#ifdef BUNDLED_GLEW
-#include "GL/glew.h"
-#else
-#include <GL/glew.h>
-#endif
+#define USE_VULKAN
+#define USE_BUFFER_CLEAR    ///< clear attachments on render pass begin
 
+#define MAX_TEXTURE_SIZE    2048 ///< must be less or equal to 32768
+#define MAX_TEXTURE_UNITS   8
+#define MAX_FLARES          128
+
+#include "vulkan/vulkan.h"
+#include "tr_glcompat.h"
 #include "tr_cvars.h"
 
-#define GL_INDEX_TYPE       GL_UNSIGNED_INT
 typedef unsigned int glIndex_t;
 
 // 14 bits
@@ -107,12 +109,13 @@ typedef struct image_s
 	char imgName[MAX_QPATH];        ///< game path, including extension
 	int width, height;              ///< source image
 	int uploadWidth, uploadHeight;  ///< after power of two and picmip but not including clamp to MAX_TEXTURE_SIZE
-	GLuint texnum;            ///< gl texture binding
+	VkImage handle;                 ///< Vulkan image
+	VkImageView view;
+	VkDescriptorSet descriptor;     ///< descriptor set used to access this image, updated once at creation
 
 	int frameUsed;                  ///< for texture usage in frame statistics
 
-	int internalFormat;
-	int TMU;                        ///< only needed for voodoo2
+	int internalFormat;             ///< VkFormat
 
 	qboolean mipmap;
 	qboolean allowPicmip;
@@ -425,6 +428,8 @@ typedef enum
 	CT_BACK_SIDED,
 	CT_TWO_SIDED
 } cullType_t;
+
+#include "vk.h"
 
 /**
  * @enum fogPass_t
@@ -1334,7 +1339,22 @@ typedef struct
 	int texEnv[2];
 	int faceCulling;
 	unsigned long glStateBits;
+	qboolean polygonOffset;
 } glstate_t;
+
+/**
+ * @struct glstatic_t
+ * @brief Window and capture sizes, not cleared during ref re-init
+ */
+typedef struct
+{
+	int windowWidth;
+	int windowHeight;
+	int captureWidth;
+	int captureHeight;
+	int initTime;
+	qboolean deviceSupportsGamma;
+} glstatic_t;
 
 /**
  * @struct backEndCounters_t
@@ -1374,6 +1394,11 @@ typedef struct
 	byte color2D[4];
 	qboolean vertexes2D;            ///< shader needs to be finished
 	trRefEntity_t entity2D;         ///< currentEntity will point at this when doing 2D rendering
+
+	qboolean doneSurfaces;          ///< done any 3d surfaces already
+	qboolean doneBloom;             ///< done bloom this frame
+	qboolean screenMapDone;
+	int screenshotMask;             ///< SCREENSHOT_MASK_* captures pending until the frame is submitted
 } backEndState_t;
 
 /**
@@ -1477,15 +1502,79 @@ typedef struct
 
 	int allowCompress;                          ///< temp var used while parsing shader only
 
-	qboolean gammaProgramUsed;
-	qboolean useFBO;
-
+	int numFogs;                                ///< read before parsing shaders
 } trGlobals_t;
 
 extern backEndState_t backEnd;
 extern trGlobals_t    tr;
 extern glconfig_t     glConfig;     ///< outside of TR since it shouldn't be cleared during ref re-init
 extern glstate_t      glState;      ///< outside of TR since it shouldn't be cleared during ref re-init
+extern glstatic_t     gls;          ///< window/capture sizes, outside of TR since it shouldn't be cleared during ref re-init
+
+extern Vk_Instance vk;              ///< shouldn't be cleared during ref re-init
+extern Vk_World    vk_world;        ///< this data is cleared during ref re-init
+
+void myGlMultMatrix(const float *a, const float *b, float *out);
+
+/**
+ * @brief Integer base 2 logarithm (used by the Vulkan backend)
+ * @param[in] val
+ * @return
+ */
+static ID_INLINE int Q_log2(int val)
+{
+	int answer = 0;
+
+	while ((val >>= 1) != 0)
+	{
+		answer++;
+	}
+	return answer;
+}
+
+/**
+ * @brief Round up (or down if roundup is 0) to a power of two
+ * @param[in] v
+ * @param[in] roundup
+ * @return
+ */
+static ID_INLINE unsigned int log2pad(unsigned int v, int roundup)
+{
+	unsigned int x = 1;
+
+	while (x < v)
+	{
+		x <<= 1;
+	}
+
+	if (roundup == 0)
+	{
+		if (x > v)
+		{
+			x >>= 1;
+		}
+	}
+
+	return x;
+}
+
+/**
+ * @brief Append src to dst and return the new end of dst
+ * @param[out] dst
+ * @param[in] src
+ * @return
+ */
+static ID_INLINE char *Q_stradd(char *dst, const char *src)
+{
+	char c;
+
+	while ((c = *src++) != '\0')
+	{
+		*dst++ = c;
+	}
+	*dst = '\0';
+	return dst;
+}
 
 //====================================================================
 
@@ -1525,7 +1614,20 @@ void GL_SelectTexture(int unit);
 void GL_TextureMode(const char *string);
 void GL_CheckErrors(void);
 void GL_State(unsigned long stateBits);
-void GL_FullscreenQuad(void);
+void GL_PolygonOffset(qboolean enable);
+
+uint32_t RB_FindPipeline(const Vk_Pipeline_Def *def);
+void RB_ClearPipelineCache(void);
+uint32_t RB_StatePipeline(int numTextures, Vk_Primitive_Topology primitives);
+void RB_DrawElements(int numTextures, int numIndexes, const glIndex_t *indexes);
+void RB_DrawDebugPrimitives(Vk_Primitive_Topology primitives, const vec4_t color, Vk_Depth_Range depthRange);
+void RB_LoadModelMatrix(const float *modelMatrix);
+void RB_DebugBegin(Vk_Primitive_Topology primitives);
+void RB_DebugColor(float r, float g, float b, float a);
+void RB_DebugVertex(const vec3_t v);
+void RB_DebugEnd(void);
+void RB_DebugDepthRange(Vk_Depth_Range depthRange);
+void RB_DebugBlend(qboolean enable);
 void GL_TexEnv(int env);
 void GL_Cull(int cullType);
 
@@ -1599,7 +1701,11 @@ void R_SkinList_f(void);
 
 byte *RB_ReadPixels(int x, int y, int width, int height, size_t *offset, int *padlen);
 
+#define SCREENSHOT_MASK_IMAGE 1
+#define SCREENSHOT_MASK_VIDEO 2
+
 const void *RB_TakeScreenshotCmd(const void *data);
+void RB_TakePendingScreenshots(void);
 void R_ScreenShot_f(void);
 
 void R_InitImages(void);
@@ -1648,6 +1754,7 @@ typedef struct
 {
 	color4ub_t colors[SHADER_MAX_VERTEXES];
 	vec2_t texcoords[NUM_TEXTURE_BUNDLES][SHADER_MAX_VERTEXES];
+	vec2_t *texcoordPtr[NUM_TEXTURE_BUNDLES];
 } stageVars_t;
 
 /**
@@ -1672,6 +1779,8 @@ typedef struct shaderCommands_s
 	int fogNum;
 
 	int dlightBits;         ///< or together of all vertexDlightBits
+
+	Vk_Depth_Range depthRange;
 
 	int numIndexes;
 	int numVertexes;
@@ -2175,92 +2284,6 @@ void R_PurgeLightmapShaders(void);
 void R_LoadCacheShaders(void);
 void R_PurgeDynamicShaders(void);
 
-// tr_gamma.c
-void R_ScreenGamma(void);
-void R_InitGamma(void);
-void R_ShutdownGamma(void);
-
-// tr_shader_program.c
-typedef struct shaderProgram_s
-{
-	GLhandleARB program;
-	GLhandleARB vertexShader;
-	GLhandleARB fragmentShader;
-} shaderProgram_t;
-
-void R_UseShaderProgram(shaderProgram_t *program);
-GLint R_GetShaderProgramUniform(shaderProgram_t *program, const char *name);
-shaderProgram_t *R_CreateShaderProgram(const char *vert, const char *frag);
-void R_DestroyShaderProgram(shaderProgram_t *program);
-qboolean R_ShaderProgramsAvailable(void);
-void R_InitShaderPrograms(void);
-void R_ShutdownShaderPrograms(void);
-
-// tr_fbo.c
-typedef struct
-{
-	char name[MAX_QPATH];
-	GLuint fbo;
-
-	GLuint color;
-	GLuint colorBuffer;
-
-	GLuint depth;
-	GLuint depthBuffer;
-
-	qboolean stencil;
-	int samples;
-
-	int width;
-	int height;
-
-	uint8_t flags;
-} frameBuffer_t;
-
-typedef enum
-{
-	READ,
-	WRITE,
-	BOTH
-} fboBinding;
-
-typedef enum
-{
-	FBO_DEPTH = BIT(0),
-	FBO_ALPHA = BIT(1)
-}fboFlags;
-
-extern frameBuffer_t *mainFbo;
-extern frameBuffer_t *msMainFbo;
-#ifdef HUD_FBO
-extern frameBuffer_t *hudFbo;
-#endif
-
-void R_FBOSetViewport(frameBuffer_t *from, frameBuffer_t *to);
-void R_BindFBO(frameBuffer_t *fb);
-frameBuffer_t *R_CurrentFBO();
-byte *R_FBOReadPixels(frameBuffer_t *fb, size_t *offset, int *padlen);
-void R_FboCopyToTex(frameBuffer_t *from, image_t *to);
-void R_FboBlit(frameBuffer_t *from, frameBuffer_t *to);
-void R_FboRenderTo(frameBuffer_t *from, frameBuffer_t *to);
-void R_ShutdownFBO(void);
-void R_InitFBO(void);
-
-#define R_BindMainFBO() { if (msMainFbo) R_BindFBO(msMainFbo); else R_BindFBO(mainFbo); }
-
-#ifdef HUD_FBO
-#define R_BindHudFBO() { R_BindFBO(hudFbo); }
-#define R_ClearHudFBO() { R_BindHudFBO(); glClearColor(1.f, 1.f, 1.f, 0.f); glClear(GL_COLOR_BUFFER_BIT); }
-#define R_DrawHudOnTop() { \
-			GL_State(GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA); \
-			R_FboRenderTo(hudFbo, NULL); \
-}
-#else
-#define R_BindHudFBO()
-#define R_ClearHudFBO()
-#define R_DrawHudOnTop()
-#endif
-
 //------------------------------------------------------------------------------
 
 /**
@@ -2334,6 +2357,7 @@ void R_FreeImageBuffer(void);
 qboolean R_inPVS(const vec3_t p1, const vec3_t p2);
 
 void GfxInfo_f(void);
+void VkInfo_f(void);
 
 void R_Register(void);
 

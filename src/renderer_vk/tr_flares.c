@@ -2,6 +2,9 @@
  * Wolfenstein: Enemy Territory GPL Source Code
  * Copyright (C) 1999-2010 id Software LLC, a ZeniMax Media company.
  *
+ * Quake3e GPL Source Code (Vulkan backend integration)
+ * Copyright (C) 2016 Eugene
+ *
  * ET: Legacy
  * Copyright (C) 2012-2024 ET:Legacy team <mail@etlegacy.com>
  *
@@ -89,8 +92,6 @@ typedef struct flare_s
 
 	int id;
 } flare_t;
-
-#define MAX_FLARES      128
 
 flare_t r_flareStructs[MAX_FLARES];
 flare_t *r_activeFlares, *r_inactiveFlares;
@@ -393,6 +394,7 @@ void RB_RenderFlare(flare_t *f)
 	float  size;
 	vec3_t color;
 	int    iColor[3];
+	int    i;
 
 	backEnd.pc.c_flareRenders++;
 
@@ -462,7 +464,37 @@ void RB_RenderFlare(flare_t *f)
 	tess.indexes[tess.numIndexes++] = 2;
 	tess.indexes[tess.numIndexes++] = 3;
 
+	for (i = 0; i < tess.numVertexes; i++)
+	{
+		tess.xyz[i][2] = 0.0f;
+	}
+
 	RB_EndSurface();
+}
+
+/**
+ * @brief Orthographic projection for Vulkan clip space (from Quake3e vk_flares.c)
+ * @param[in] x1
+ * @param[in] x2
+ * @param[in] y2
+ * @param[in] y1
+ * @param[in] z1
+ * @param[in] z2
+ * @return
+ */
+static float *R_FlareOrtho(float x1, float x2, float y2, float y1, float z1, float z2)
+{
+	static float m[16] = { 0 };
+
+	m[0]  = 2.0f / (x2 - x1);
+	m[5]  = 2.0f / (y2 - y1);
+	m[10] = 1.0f / (z1 - z2);
+	m[12] = -(x2 + x1) / (x2 - x1);
+	m[13] = -(y2 + y1) / (y2 - y1);
+	m[14] = z1 / (z1 - z2);
+	m[15] = 1.0f;
+
+	return m;
 }
 
 /**
@@ -534,19 +566,9 @@ void RB_RenderFlares(void)
 		return;
 	}
 
-	if (backEnd.viewParms.isPortal)
-	{
-		glDisable(GL_CLIP_PLANE0);
-	}
-
-	glPushMatrix();
-	glLoadIdentity();
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	glOrtho(backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
-	        backEnd.viewParms.viewportY, backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight,
-	        -99999, 99999);
+	// window coordinates projection, z = 0 maps to the near plane (reversed depth)
+	vk_update_mvp(R_FlareOrtho(backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
+	                           backEnd.viewParms.viewportY, backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight, 1.0f, 0.0f));
 
 	for (f = r_activeFlares ; f ; f = f->next)
 	{
@@ -556,7 +578,6 @@ void RB_RenderFlares(void)
 		}
 	}
 
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	// restore the view projection
+	vk_update_mvp(NULL);
 }

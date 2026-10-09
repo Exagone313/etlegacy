@@ -93,28 +93,9 @@ void R_Fog(glfog_t *curfog)
 		curfog->mode = GL_LINEAR;
 	}
 
+	// FIXME: distance fog is not implemented in the Vulkan renderer yet,
+	// only the fog state is tracked
 	R_FogOn();
-
-	glFogi(GL_FOG_MODE, curfog->mode);
-
-	glFogfv(GL_FOG_COLOR, curfog->color);
-
-	glFogf(GL_FOG_DENSITY, curfog->density);
-
-	glHint(GL_FOG_HINT, curfog->hint);
-
-	glFogf(GL_FOG_START, curfog->start);
-
-	if (r_zFar->value != 0.f)                 // allow override for helping level designers test fog distances
-	{
-		glFogf(GL_FOG_END, r_zFar->value);
-	}
-	else
-	{
-		glFogf(GL_FOG_END, curfog->end);
-	}
-
-	glClearColor(curfog->color[0], curfog->color[1], curfog->color[2], curfog->color[3]);
 }
 
 /**
@@ -126,7 +107,6 @@ void R_FogOff(void)
 	{
 		return;
 	}
-	glDisable(GL_FOG);
 	fogIsOn = qfalse;
 }
 
@@ -157,7 +137,6 @@ void R_FogOn(void)
 		return;
 	}
 
-	glEnable(GL_FOG);
 	fogIsOn = qtrue;
 }
 
@@ -933,15 +912,70 @@ void R_SetupProjection(void)
 	tr.viewParms.projectionMatrix[9]  = (ymax + ymin) / height;     // normally 0
 	tr.viewParms.projectionMatrix[13] = 0;
 
-	tr.viewParms.projectionMatrix[2]  = 0;
-	tr.viewParms.projectionMatrix[6]  = 0;
-	tr.viewParms.projectionMatrix[10] = -(zFar + zNear) / depth;
-	tr.viewParms.projectionMatrix[14] = -2 * zFar * zNear / depth;
-
 	tr.viewParms.projectionMatrix[3]  = 0;
 	tr.viewParms.projectionMatrix[7]  = 0;
 	tr.viewParms.projectionMatrix[11] = -1;
 	tr.viewParms.projectionMatrix[15] = 0;
+
+	// Vulkan depth range is [0..1], reversed depth puts the far plane at 0
+	tr.viewParms.projectionMatrix[2] = 0;
+	tr.viewParms.projectionMatrix[6] = 0;
+#ifdef USE_REVERSED_DEPTH
+	tr.viewParms.projectionMatrix[10] = zNear / depth;
+	tr.viewParms.projectionMatrix[14] = zFar * zNear / depth;
+#else
+	tr.viewParms.projectionMatrix[10] = -zFar / depth;
+	tr.viewParms.projectionMatrix[14] = -zFar * zNear / depth;
+#endif
+
+	// there are no user clip planes with Vulkan, clip portal views with an oblique near plane
+	if (tr.viewParms.isPortal)
+	{
+		float  plane[4];
+		float  plane2[4];
+		vec4_t q, c;
+		float  scale;
+
+#ifdef USE_REVERSED_DEPTH
+		tr.viewParms.projectionMatrix[10] = -zFar / depth;
+		tr.viewParms.projectionMatrix[14] = -zFar * zNear / depth;
+#endif
+		// transform portal plane into camera space
+		plane[0] = tr.viewParms.portalPlane.normal[0];
+		plane[1] = tr.viewParms.portalPlane.normal[1];
+		plane[2] = tr.viewParms.portalPlane.normal[2];
+		plane[3] = tr.viewParms.portalPlane.dist;
+
+		plane2[0] = -DotProduct(tr.viewParms.orientation.axis[1], plane);
+		plane2[1] = DotProduct(tr.viewParms.orientation.axis[2], plane);
+		plane2[2] = -DotProduct(tr.viewParms.orientation.axis[0], plane);
+		plane2[3] = DotProduct(plane, tr.viewParms.orientation.origin) - plane[3];
+
+		// Lengyel, Eric. "Modifying the Projection Matrix to Perform Oblique Near-plane Clipping".
+		// Terathon Software 3D Graphics Library, 2004. http://www.terathon.com/code/oblique.html
+		q[0] = ((plane2[0] < 0.f ? -1.f : (plane2[0] > 0.f ? 1.f : 0.f)) + tr.viewParms.projectionMatrix[8]) / tr.viewParms.projectionMatrix[0];
+		q[1] = ((plane2[1] < 0.f ? -1.f : (plane2[1] > 0.f ? 1.f : 0.f)) + tr.viewParms.projectionMatrix[9]) / tr.viewParms.projectionMatrix[5];
+		q[2] = -1.0f;
+		q[3] = -tr.viewParms.projectionMatrix[10] / tr.viewParms.projectionMatrix[14];
+
+		scale = 2.0f / (plane2[0] * q[0] + plane2[1] * q[1] + plane2[2] * q[2] + plane2[3] * q[3]);
+		c[0]  = plane2[0] * scale;
+		c[1]  = plane2[1] * scale;
+		c[2]  = plane2[2] * scale;
+		c[3]  = plane2[3] * scale;
+
+		tr.viewParms.projectionMatrix[2]  = c[0];
+		tr.viewParms.projectionMatrix[6]  = c[1];
+		tr.viewParms.projectionMatrix[10] = c[2];
+		tr.viewParms.projectionMatrix[14] = c[3];
+
+#ifdef USE_REVERSED_DEPTH
+		tr.viewParms.projectionMatrix[2]  = -tr.viewParms.projectionMatrix[2];
+		tr.viewParms.projectionMatrix[6]  = -tr.viewParms.projectionMatrix[6];
+		tr.viewParms.projectionMatrix[10] = -(tr.viewParms.projectionMatrix[10] + 1.0f);
+		tr.viewParms.projectionMatrix[14] = -tr.viewParms.projectionMatrix[14];
+#endif
+	}
 }
 
 /**
@@ -1775,30 +1809,39 @@ static void R_GenerateDrawSurfs(void)
  */
 void R_DebugPolygon(int color, int numPoints, float *points)
 {
-	int i;
+	vec4_t shade;
+	int    i;
 
-	GL_State(GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE);
+	if (numPoints < 3 || (numPoints - 2) * 3 > SHADER_MAX_VERTEXES || numPoints * 2 > SHADER_MAX_VERTEXES)
+	{
+		return;
+	}
 
 	// draw solid shade
-	glColor3f(color & 1, (color >> 1) & 1, (color >> 2) & 1);
-	glBegin(GL_POLYGON);
-	for (i = 0 ; i < numPoints ; i++)
+	GL_State(GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE);
+
+	tess.numVertexes = 0;
+	for (i = 1; i < numPoints - 1; i++)
 	{
-		glVertex3fv(points + i * 3);
+		VectorCopy(points, tess.xyz[tess.numVertexes++]);
+		VectorCopy(points + i * 3, tess.xyz[tess.numVertexes++]);
+		VectorCopy(points + (i + 1) * 3, tess.xyz[tess.numVertexes++]);
 	}
-	glEnd();
+	Vector4Set(shade, color & 1, (color >> 1) & 1, (color >> 2) & 1, 1.f);
+	RB_DrawDebugPrimitives(TRIANGLE_LIST, shade, DEPTH_RANGE_NORMAL);
 
 	// draw wireframe outline
-	GL_State(GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE);
-	glDepthRange(0, 0);
-	glColor3f(1, 1, 1);
-	glBegin(GL_POLYGON);
-	for (i = 0 ; i < numPoints ; i++)
+	GL_State(GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE);
+
+	tess.numVertexes = 0;
+	for (i = 0; i < numPoints; i++)
 	{
-		glVertex3fv(points + i * 3);
+		VectorCopy(points + i * 3, tess.xyz[tess.numVertexes++]);
+		VectorCopy(points + ((i + 1) % numPoints) * 3, tess.xyz[tess.numVertexes++]);
 	}
-	glEnd();
-	glDepthRange(0, 1);
+	RB_DrawDebugPrimitives(LINE_LIST, colorWhite, DEPTH_RANGE_ZERO);
+
+	tess.numVertexes = 0;
 }
 
 /**

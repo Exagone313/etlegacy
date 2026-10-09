@@ -1,4 +1,8 @@
 #version 450
+// Ported from Quake3e (code/renderervk/shaders), GPLv2+
+// Copyright (C) Artem Kharytoniuk (Quake-III-Arena-Kenny-Edition)
+// Copyright (C) 2016 Eugene (Quake3e)
+// Part of ET: Legacy, licensed under the GNU GPL version 3 or later
 
 // 3-tap gaussian blur 
 // exploiting linear filtering with -1.2 0 +1.2 texture offsets and 5 6 5 weighting

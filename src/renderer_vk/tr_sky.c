@@ -2,6 +2,9 @@
  * Wolfenstein: Enemy Territory GPL Source Code
  * Copyright (C) 1999-2010 id Software LLC, a ZeniMax Media company.
  *
+ * Quake3e GPL Source Code (Vulkan backend integration)
+ * Copyright (C) 2016 Eugene
+ *
  * ET: Legacy
  * Copyright (C) 2012-2024 ET:Legacy team <mail@etlegacy.com>
  *
@@ -430,6 +433,69 @@ static vec3_t s_skyPoints[SKY_SUBDIVISIONS + 1][SKY_SUBDIVISIONS + 1];
 static float  s_skyTexCoords[SKY_SUBDIVISIONS + 1][SKY_SUBDIVISIONS + 1][2];
 
 /**
+ * @brief Draw a part of a sky box side with the given state
+ * @param[in] image
+ * @param[in] mins
+ * @param[in] maxs
+ * @param[in] stateBits
+ *
+ * @note The vertexes are built in tess, the sky polygons have already been clipped.
+ */
+static void DrawSkySideState(struct image_s *image, const int mins[2], const int maxs[2], unsigned long stateBits)
+{
+	const int sWidth  = maxs[0] - mins[0] + 1;
+	const int tHeight = maxs[1] - mins[1] + 1;
+	int       s, t;
+
+	if (sWidth < 2 || tHeight < 2)
+	{
+		return;
+	}
+
+	tess.numVertexes = 0;
+	tess.numIndexes  = 0;
+
+	for (t = mins[1] + HALF_SKY_SUBDIVISIONS; t <= maxs[1] + HALF_SKY_SUBDIVISIONS; t++)
+	{
+		for (s = mins[0] + HALF_SKY_SUBDIVISIONS; s <= maxs[0] + HALF_SKY_SUBDIVISIONS; s++)
+		{
+			VectorAdd(s_skyPoints[t][s], backEnd.viewParms.orientation.origin, tess.xyz[tess.numVertexes]);
+			tess.svars.texcoords[0][tess.numVertexes][0] = s_skyTexCoords[t][s][0];
+			tess.svars.texcoords[0][tess.numVertexes][1] = s_skyTexCoords[t][s][1];
+			tess.svars.colors[tess.numVertexes][0]       = tr.identityLightByte;
+			tess.svars.colors[tess.numVertexes][1]       = tr.identityLightByte;
+			tess.svars.colors[tess.numVertexes][2]       = tr.identityLightByte;
+			tess.svars.colors[tess.numVertexes][3]       = 255;
+			tess.numVertexes++;
+		}
+	}
+
+	for (t = 0; t < tHeight - 1; t++)
+	{
+		for (s = 0; s < sWidth - 1; s++)
+		{
+			tess.indexes[tess.numIndexes++] = s + t * sWidth;
+			tess.indexes[tess.numIndexes++] = s + (t + 1) * sWidth;
+			tess.indexes[tess.numIndexes++] = s + 1 + t * sWidth;
+
+			tess.indexes[tess.numIndexes++] = s + (t + 1) * sWidth;
+			tess.indexes[tess.numIndexes++] = s + 1 + (t + 1) * sWidth;
+			tess.indexes[tess.numIndexes++] = s + 1 + t * sWidth;
+		}
+	}
+
+	tess.svars.texcoordPtr[0] = tess.svars.texcoords[0];
+
+	GL_SelectTexture(0);
+	GL_Bind(image);
+	GL_State(stateBits);
+	RB_DrawElements(1, tess.numIndexes, tess.indexes);
+
+	tess.numVertexes = 0;
+	tess.numIndexes  = 0;
+}
+
+/**
  * @brief DrawSkySide
  * @param[in] image
  * @param[in] mins
@@ -437,25 +503,7 @@ static float  s_skyTexCoords[SKY_SUBDIVISIONS + 1][SKY_SUBDIVISIONS + 1][2];
  */
 static void DrawSkySide(struct image_s *image, const int mins[2], const int maxs[2])
 {
-	int s, t;
-
-	GL_Bind(image);
-
-	for (t = mins[1] + HALF_SKY_SUBDIVISIONS; t < maxs[1] + HALF_SKY_SUBDIVISIONS; t++)
-	{
-		glBegin(GL_TRIANGLE_STRIP);
-
-		for (s = mins[0] + HALF_SKY_SUBDIVISIONS; s <= maxs[0] + HALF_SKY_SUBDIVISIONS; s++)
-		{
-			glTexCoord2fv(s_skyTexCoords[t][s]);
-			glVertex3fv(s_skyPoints[t][s]);
-
-			glTexCoord2fv(s_skyTexCoords[t + 1][s]);
-			glVertex3fv(s_skyPoints[t + 1][s]);
-		}
-
-		glEnd();
-	}
+	DrawSkySideState(image, mins, maxs, 0);
 }
 
 /**
@@ -466,32 +514,7 @@ static void DrawSkySide(struct image_s *image, const int mins[2], const int maxs
  */
 static void DrawSkySideInner(struct image_s *image, const int mins[2], const int maxs[2])
 {
-	int s, t;
-
-	GL_Bind(image);
-
-	//glDisable (GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glEnable(GL_BLEND);
-	GL_TexEnv(GL_MODULATE);
-
-	for (t = mins[1] + HALF_SKY_SUBDIVISIONS; t < maxs[1] + HALF_SKY_SUBDIVISIONS; t++)
-	{
-		glBegin(GL_TRIANGLE_STRIP);
-
-		for (s = mins[0] + HALF_SKY_SUBDIVISIONS; s <= maxs[0] + HALF_SKY_SUBDIVISIONS; s++)
-		{
-			glTexCoord2fv(s_skyTexCoords[t][s]);
-			glVertex3fv(s_skyPoints[t][s]);
-
-			glTexCoord2fv(s_skyTexCoords[t + 1][s]);
-			glVertex3fv(s_skyPoints[t + 1][s]);
-		}
-
-		glEnd();
-	}
-
-	glDisable(GL_BLEND);
+	DrawSkySideState(image, mins, maxs, GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 }
 
 /**
@@ -962,16 +985,14 @@ void RB_DrawSun(void)
 	{
 		return;
 	}
-	glPushMatrix();
-	glLoadMatrixf(backEnd.viewParms.world.modelMatrix);
-	glTranslatef(backEnd.viewParms.orientation.origin[0], backEnd.viewParms.orientation.origin[1], backEnd.viewParms.orientation.origin[2]);
+	RB_LoadModelMatrix(backEnd.viewParms.world.modelMatrix);
 
 	dist = backEnd.viewParms.zFar / 1.75f;       // div sqrt(3)
 
 	// shrunk the size of the sun
 	size = dist * 0.2f;
 
-	VectorScale(tr.sunDirection, dist, origin);
+	VectorMA(backEnd.viewParms.orientation.origin, dist, tr.sunDirection, origin);
 	PerpendicularVector(vec1, tr.sunDirection);
 	CrossProduct(tr.sunDirection, vec1, vec2);
 
@@ -979,7 +1000,7 @@ void RB_DrawSun(void)
 	VectorScale(vec2, size, vec2);
 
 	// farthest depth range
-	glDepthRange(1.0, 1.0);
+	tess.depthRange = DEPTH_RANGE_ONE;
 
 	color[0] = color[1] = color[2] = color[3] = 255;
 
@@ -1050,7 +1071,7 @@ void RB_DrawSun(void)
 
 		// get a point a little closer
 		dist = dist * 0.7f;
-		VectorScale(tr.sunDirection, dist, origin);
+		VectorMA(backEnd.viewParms.orientation.origin, dist, tr.sunDirection, origin);
 
 		// and make the flare a little smaller
 		VectorScale(vec1, 0.5f, vec1);
@@ -1074,8 +1095,8 @@ void RB_DrawSun(void)
 	}
 
 	// back to normal depth range
-	glDepthRange(0.0, 1.0);
-	glPopMatrix();
+	tess.depthRange = DEPTH_RANGE_NORMAL;
+	RB_LoadModelMatrix(backEnd.orientation.modelMatrix);
 }
 
 /**
@@ -1124,11 +1145,11 @@ void RB_StageIteratorSky(void)
 	// much sky is getting sucked in
 	if (r_showSky->integer)
 	{
-		glDepthRange(0.0, 0.0);
+		tess.depthRange = DEPTH_RANGE_ZERO;
 	}
 	else
 	{
-		glDepthRange(1.0, 1.0);
+		tess.depthRange = DEPTH_RANGE_ONE;
 	}
 
 	GL_Cull(CT_TWO_SIDED);
@@ -1136,15 +1157,7 @@ void RB_StageIteratorSky(void)
 	// draw the outer skybox
 	if (tess.shader->sky.outerbox[0] && tess.shader->sky.outerbox[0] != tr.defaultImage)
 	{
-		glColor3f(tr.identityLight, tr.identityLight, tr.identityLight);
-
-		glPushMatrix();
-		GL_State(0);
-		glTranslatef(backEnd.viewParms.orientation.origin[0], backEnd.viewParms.orientation.origin[1], backEnd.viewParms.orientation.origin[2]);
-
 		DrawSkyBox(tess.shader);
-
-		glPopMatrix();
 	}
 
 	// generate the vertexes for all the clouds, which will be drawn
@@ -1156,19 +1169,11 @@ void RB_StageIteratorSky(void)
 	// draw the inner skybox
 	if (tess.shader->sky.innerbox[0] && tess.shader->sky.innerbox[0] != tr.defaultImage)
 	{
-		glColor3f(tr.identityLight, tr.identityLight, tr.identityLight);
-
-		glPushMatrix();
-		GL_State(0);
-		glTranslatef(backEnd.viewParms.orientation.origin[0], backEnd.viewParms.orientation.origin[1], backEnd.viewParms.orientation.origin[2]);
-
 		DrawSkyBoxInner(tess.shader);
-
-		glPopMatrix();
 	}
 
 	// back to normal depth range
-	glDepthRange(0.0, 1.0);
+	tess.depthRange = DEPTH_RANGE_NORMAL;
 
 	backEnd.refdef.rdflags &= ~RDF_DRAWINGSKY;
 
