@@ -1020,7 +1020,6 @@ static void R_CreateFogImage(void)
 {
 	int   x, y, alpha;
 	byte  *data;
-	float borderColor[4];
 
 	// allocate table for image
 	data = ri.Hunk_AllocateTempMemory(FOG_S * FOG_T * 4);
