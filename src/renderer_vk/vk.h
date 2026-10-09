@@ -292,7 +292,7 @@ void vk_shutdown( refShutdownCode_t code );
 
 // Releases vulkan resources allocated during program execution.
 // This effectively puts vulkan subsystem into initial state (the state we have after vk_initialize call).
-void vk_release_resources( void );
+void vk_release_resources( qboolean keepImages );
 
 void vk_wait_idle( void );
 void vk_queue_wait_idle( void );
@@ -304,6 +304,7 @@ void vk_create_image( image_t *image, int width, int height, int mip_levels );
 void vk_upload_image_data( image_t *image, int x, int y, int width, int height, int miplevels, byte *pixels, int size, qboolean update );
 void vk_update_descriptor_set( image_t *image, qboolean mipmap );
 void vk_destroy_image_resources( VkImage *image, VkImageView *imageView );
+void vk_destroy_image( image_t *image );
 void vk_update_attachment_descriptors( void );
 void vk_destroy_samplers( void );
 
@@ -706,7 +707,9 @@ typedef struct {
 
 typedef struct {
 	VkDeviceMemory memory;
+	VkDeviceSize size;
 	VkDeviceSize used;
+	uint32_t images;	// number of images bound to this chunk
 } ImageChunk;
 
 // Vk_World contains vulkan resources/state requested by the game code.

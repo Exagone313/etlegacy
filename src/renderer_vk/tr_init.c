@@ -971,6 +971,8 @@ void R_PurgeCache(void)
  */
 void RE_Shutdown(qboolean destroyWindow)
 {
+	qboolean keepMedia;
+
 	Ren_Print("RE_Shutdown( %i )\n", destroyWindow);
 
 	ri.Cmd_RemoveSystemCommand("imagelist");
@@ -983,10 +985,10 @@ void RE_Shutdown(qboolean destroyWindow)
 	ri.Cmd_RemoveSystemCommand("vkinfo");
 	ri.Cmd_RemoveSystemCommand("taginfo");
 
+	// keep a backup of the current images if possible
 	// clean out any remaining unused media from the last backup
 	R_PurgeCache();
 
-	// the media cache is disabled with Vulkan, see R_Register()
 	if (tr.registered)
 	{
 		R_IssuePendingRenderCommands();
@@ -999,13 +1001,26 @@ void RE_Shutdown(qboolean destroyWindow)
 		vk_present_frame();
 	}
 
-	R_DeleteTextures();
+	// the Vulkan device is kept when the window is, the cached images stay valid
+	keepMedia = (r_cache->integer && tr.registered && !destroyWindow && vk.active) ? qtrue : qfalse;
+
+	if (keepMedia)
+	{
+		// backup the current media
+		R_BackupModels();
+		R_BackupShaders();
+		R_BackupImages();
+	}
+	else
+	{
+		R_DeleteTextures();
+	}
 
 	R_DoneFreeType();
 
 	if (vk.active)
 	{
-		vk_release_resources();
+		vk_release_resources(keepMedia);
 	}
 
 	// shut down platform specific Vulkan stuff

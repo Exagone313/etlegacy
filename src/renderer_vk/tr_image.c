@@ -1283,8 +1283,7 @@ void R_DeleteTextures(void)
 
 		for (i = 0; i < tr.numImages ; i++)
 		{
-			// the descriptor is released with the descriptor pool reset
-			vk_destroy_image_resources(&tr.images[i]->handle, &tr.images[i]->view);
+			vk_destroy_image(tr.images[i]);
 		}
 	}
 
@@ -1887,7 +1886,7 @@ void R_PurgeImage(image_t *image)
 	if (vk.active)
 	{
 		vk_wait_idle();
-		vk_destroy_image_resources(&image->handle, &image->view);
+		vk_destroy_image(image);
 	}
 
 	R_CacheImageFree(image);

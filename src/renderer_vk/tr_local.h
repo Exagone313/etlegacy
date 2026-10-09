@@ -112,6 +112,7 @@ typedef struct image_s
 	VkImage handle;                 ///< Vulkan image
 	VkImageView view;
 	VkDescriptorSet descriptor;     ///< descriptor set used to access this image, updated once at creation
+	int memoryChunk;                ///< index + 1 of the vk_world image memory chunk, 0 if none
 
 	int frameUsed;                  ///< for texture usage in frame statistics
 

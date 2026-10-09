@@ -257,21 +257,6 @@ void R_Register(void)
 	r_cacheShaders = ri.Cvar_Get("r_cacheShaders", "1", CVAR_LATCH);
 
 	r_cacheModels    = ri.Cvar_Get("r_cacheModels", "1", CVAR_LATCH);
-
-	// Vulkan images and descriptors are released on every shutdown, the media cache can't
-	// be kept across renderer restarts. Use a disabled copy instead of changing the shared cvars.
-	{
-		static cvar_t cacheDisabled;
-
-		cacheDisabled.name    = "r_cache";
-		cacheDisabled.string  = "0";
-		cacheDisabled.value   = 0.f;
-		cacheDisabled.integer = 0;
-
-		r_cache        = &cacheDisabled;
-		r_cacheShaders = &cacheDisabled;
-		r_cacheModels  = &cacheDisabled;
-	}
 	r_cacheGathering = ri.Cvar_Get("cl_cacheGathering", "0", 0);
 	r_bonesDebug     = ri.Cvar_Get("r_bonesDebug", "0", CVAR_CHEAT);
 

@@ -1075,7 +1075,8 @@ static void vk_create_render_passes( void )
 }
 
 
-static void allocate_and_bind_image_memory(VkImage image) {
+static void allocate_and_bind_image_memory( image_t *img ) {
+	VkImage image = img->handle;
 	VkMemoryRequirements memory_requirements;
 	VkDeviceSize alignment;
 	ImageChunk *chunk;
@@ -1096,7 +1097,7 @@ static void allocate_and_bind_image_memory(VkImage image) {
 		// ensure that memory region has proper alignment
 		VkDeviceSize offset = PAD( vk_world.image_chunks[i].used, alignment );
 
-		if ( offset + memory_requirements.size <= vk.image_chunk_size ) {
+		if ( vk_world.image_chunks[i].memory != VK_NULL_HANDLE && offset + memory_requirements.size <= vk_world.image_chunks[i].size ) {
 			chunk = &vk_world.image_chunks[i];
 			chunk->used = offset + memory_requirements.size;
 			break;
@@ -1107,8 +1108,16 @@ static void allocate_and_bind_image_memory(VkImage image) {
 	if (chunk == NULL) {
 		VkMemoryAllocateInfo alloc_info;
 		VkDeviceMemory memory;
+		int index;
 
-		if (vk_world.num_image_chunks >= MAX_IMAGE_CHUNKS) {
+		// reuse a slot released while the media cache kept other chunks
+		for ( index = 0; index < vk_world.num_image_chunks; index++ ) {
+			if ( vk_world.image_chunks[index].memory == VK_NULL_HANDLE ) {
+				break;
+			}
+		}
+
+		if (index >= MAX_IMAGE_CHUNKS) {
 			ri.Error(ERR_FATAL, "Vulkan: image chunk limit has been reached" );
 		}
 
@@ -1119,16 +1128,41 @@ static void allocate_and_bind_image_memory(VkImage image) {
 
 		VK_CHECK( qvkAllocateMemory( vk.device, &alloc_info, NULL, &memory ) );
 
-		chunk = &vk_world.image_chunks[vk_world.num_image_chunks];
+		chunk = &vk_world.image_chunks[index];
 		chunk->memory = memory;
+		chunk->size = vk.image_chunk_size;
 		chunk->used = memory_requirements.size;
+		chunk->images = 0;
 
-		SET_OBJECT_NAME( memory, va( "image memory chunk %i", vk_world.num_image_chunks ), VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT );
+		SET_OBJECT_NAME( memory, va( "image memory chunk %i", index ), VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT );
 
-		vk_world.num_image_chunks++;
+		if ( index == vk_world.num_image_chunks ) {
+			vk_world.num_image_chunks++;
+		}
 	}
 
 	VK_CHECK(qvkBindImageMemory(vk.device, image, chunk->memory, chunk->used - memory_requirements.size));
+
+	chunk->images++;
+	img->memoryChunk = (int)( chunk - vk_world.image_chunks ) + 1;
+}
+
+
+// Releases the image's memory chunk slot, the chunk is reused when its last image is gone
+static void release_image_memory( image_t *img ) {
+	ImageChunk *chunk;
+
+	if ( img->memoryChunk <= 0 || img->memoryChunk > vk_world.num_image_chunks ) {
+		img->memoryChunk = 0;
+		return;
+	}
+
+	chunk = &vk_world.image_chunks[ img->memoryChunk - 1 ];
+	img->memoryChunk = 0;
+
+	if ( chunk->images > 0 && --chunk->images == 0 ) {
+		chunk->used = 0;
+	}
 }
 
 
@@ -4294,7 +4328,7 @@ void vk_initialize( void )
 
 		desc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		desc.pNext = NULL;
-		desc.flags = 0;
+		desc.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT; // images kept in the media cache keep their descriptors
 		desc.maxSets = maxSets;
 		desc.poolSizeCount = ARRAY_LEN( pool_size );
 		desc.pPoolSizes = pool_size;
@@ -4752,13 +4786,43 @@ void vk_queue_wait_idle( void )
 }
 
 
-void vk_release_resources( void ) {
+static void vk_free_descriptor( VkDescriptorSet *descriptor )
+{
+	if ( *descriptor != VK_NULL_HANDLE ) {
+		qvkFreeDescriptorSets( vk.device, vk.descriptor_pool, 1, descriptor );
+		*descriptor = VK_NULL_HANDLE;
+	}
+}
+
+
+/*
+ * keepImages: images backed up by the media cache (r_cache) stay alive with their memory
+ * and descriptors, everything else is released like on a full release
+ */
+void vk_release_resources( qboolean keepImages ) {
+	ImageChunk chunks[ MAX_IMAGE_CHUNKS ];
+	int num_chunks = 0;
 	int i, j;
 
 	vk_wait_idle();
 
-	for (i = 0; i < vk_world.num_image_chunks; i++)
-		qvkFreeMemory(vk.device, vk_world.image_chunks[i].memory, NULL);
+	for ( i = 0; i < vk_world.num_image_chunks; i++ ) {
+		if ( keepImages && vk_world.image_chunks[i].images > 0 ) {
+			continue;
+		}
+		if ( vk_world.image_chunks[i].memory != VK_NULL_HANDLE ) {
+			qvkFreeMemory( vk.device, vk_world.image_chunks[i].memory, NULL );
+			vk_world.image_chunks[i].memory = VK_NULL_HANDLE;
+		}
+		vk_world.image_chunks[i].used = 0;
+		vk_world.image_chunks[i].images = 0;
+	}
+
+	if ( keepImages ) {
+		// chunk indexes are stored in the cached images, keep the table layout
+		num_chunks = vk_world.num_image_chunks;
+		Com_Memcpy( chunks, vk_world.image_chunks, sizeof( chunks[0] ) * num_chunks );
+	}
 
 	vk_clean_staging_buffer();
 
@@ -4776,9 +4840,22 @@ void vk_release_resources( void ) {
 	}
 	vk.pipelines_count = vk.pipelines_world_base;
 
-	VK_CHECK( qvkResetDescriptorPool( vk.device, vk.descriptor_pool, 0 ) );
+	if ( keepImages ) {
+		// release the descriptors allocated by vk_init_descriptors(), not the image ones
+		vk_free_descriptor( &vk.storage.descriptor );
+		for ( i = 0; i < NUM_COMMAND_BUFFERS; i++ ) {
+			vk_free_descriptor( &vk.tess[i].uniform_descriptor );
+		}
+		vk_free_descriptor( &vk.color_descriptor );
+		for ( i = 0; i < ARRAY_LEN( vk.bloom_image_descriptor ); i++ ) {
+			vk_free_descriptor( &vk.bloom_image_descriptor[i] );
+		}
+		vk_free_descriptor( &vk.screenMap.color_descriptor );
+	} else {
+		VK_CHECK( qvkResetDescriptorPool( vk.device, vk.descriptor_pool, 0 ) );
+	}
 
-	if ( vk_world.num_image_chunks > 1 ) {
+	if ( vk_world.num_image_chunks > 1 && !keepImages ) {
 		// if we allocated more than 2 image chunks - use doubled default size
 		vk.image_chunk_size = (IMAGE_CHUNK_SIZE * 2);
 	}
@@ -4792,6 +4869,11 @@ void vk_release_resources( void ) {
 #endif
 
 	Com_Memset( &vk_world, 0, sizeof( vk_world ) );
+
+	if ( num_chunks ) {
+		vk_world.num_image_chunks = num_chunks;
+		Com_Memcpy( vk_world.image_chunks, chunks, sizeof( chunks[0] ) * num_chunks );
+	}
 
 	// Reset geometry buffers offsets
 	for ( i = 0; i < NUM_COMMAND_BUFFERS; i++ ) {
@@ -4832,6 +4914,7 @@ void vk_create_image( image_t *image, int width, int height, int mip_levels ) {
 	if ( image->handle ) {
 		qvkDestroyImage( vk.device, image->handle, NULL );
 		image->handle = VK_NULL_HANDLE;
+		release_image_memory( image );
 	}
 
 	if ( image->view ) {
@@ -4863,7 +4946,7 @@ void vk_create_image( image_t *image, int width, int height, int mip_levels ) {
 
 		VK_CHECK( qvkCreateImage( vk.device, &desc, NULL, &image->handle ) );
 
-		allocate_and_bind_image_memory( image->handle );
+		allocate_and_bind_image_memory( image );
 	}
 
 	// create image view
@@ -5146,6 +5229,21 @@ void vk_destroy_image_resources( VkImage *image, VkImageView *imageView )
 			qvkDestroyImageView( vk.device, *imageView, NULL );
 			*imageView = VK_NULL_HANDLE;
 		}
+	}
+}
+
+
+void vk_destroy_image( image_t *image )
+{
+	if ( image->handle != VK_NULL_HANDLE ) {
+		release_image_memory( image );
+	}
+
+	vk_destroy_image_resources( &image->handle, &image->view );
+
+	if ( image->descriptor != VK_NULL_HANDLE ) {
+		qvkFreeDescriptorSets( vk.device, vk.descriptor_pool, 1, &image->descriptor );
+		image->descriptor = VK_NULL_HANDLE;
 	}
 }
 
