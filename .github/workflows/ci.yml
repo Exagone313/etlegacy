@@ -105,6 +105,69 @@ jobs:
         working-directory: build
         run: cpack
 
+  lnx64-vulkan:
+    runs-on: ubuntu-24.04
+    needs: [pre-build]
+    container:
+      image: etlegacy/lnx-build:latest
+      options: --user 1001:1001
+    env:
+      CI_ETL_DESCRIBE: ${{ needs.pre-build.outputs.describe }}
+      CI_ETL_TAG: ${{ needs.pre-build.outputs.tag }}
+      CI: "true"
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout (git, no JS actions)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # Make submodules work even if they use https://github.com/, git://github.com/, or ssh
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git://github.com/"
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          # Ensure workspace is empty
+          mkdir -p "$GITHUB_WORKSPACE"
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+          cd "$GITHUB_WORKSPACE"
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+
+          # Works for push (refs/heads/...) and PR (refs/pull/.../merge)
+          git fetch --no-tags --prune --depth=1 origin "${GITHUB_REF}"
+          git checkout --detach FETCH_HEAD
+
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
+      - name: Build
+        run: |
+          ./easybuild.sh build -64 -vulkan
+
+
+  # Make sure the precompiled SPIR-V in src/renderer_vk/shaders/spirv matches the GLSL sources
+  vulkan-shaders:
+    runs-on: ubuntu-24.04
+    needs: [pre-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install glslang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools
+
+      - name: Compile shaders
+        run: ./src/renderer_vk/shaders/compile.sh
+
+      - name: Check generated shader data is up to date
+        run: git diff --exit-code -- src/renderer_vk/shaders/spirv
+
   lnx32:
     runs-on: ubuntu-24.04
     needs: [pre-build]
@@ -289,6 +352,8 @@ jobs:
       - lnx-aarch64
       - lnx32
       - lnx64
+      - lnx64-vulkan
+      - vulkan-shaders
       - osx
       - win
       - win64
@@ -320,6 +385,8 @@ jobs:
       - lnx-aarch64
       - lnx32
       - lnx64
+      - lnx64-vulkan
+      - vulkan-shaders
       - osx
       - win
       - win64
