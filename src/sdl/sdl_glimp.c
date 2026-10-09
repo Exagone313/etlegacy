@@ -36,6 +36,13 @@
 
 #ifdef FEATURE_RENDERER_VULKAN
 #include <SDL2/SDL_vulkan.h>
+
+// calling convention of the Vulkan entry points, see VKAPI_PTR in vk_platform.h
+#if defined(_WIN32)
+#define ETL_VKAPI_PTR __stdcall
+#else
+#define ETL_VKAPI_PTR
+#endif
 #endif
 
 #include <stdarg.h>
@@ -448,6 +455,10 @@ void GLimp_Shutdown(void)
 
 	Cmd_RemoveCommand("modelist");
 	Cmd_RemoveCommand("minimize");
+
+#ifdef FEATURE_RENDERER_VULKAN
+	SDL_Vulkan_UnloadLibrary();
+#endif
 
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
@@ -1020,6 +1031,15 @@ static int GLimp_SetMode(glconfig_t *glConfig, int mode, qboolean fullscreen, qb
 
 		SDL_SetWindowIcon(main_window, icon);
 
+		// the Vulkan renderer creates its own surface and swapchain
+		if (flags & SDL_WINDOW_VULKAN)
+		{
+			glConfig->colorBits   = testColorBits;
+			glConfig->depthBits   = testDepthBits;
+			glConfig->stencilBits = testStencilBits;
+			break;
+		}
+
 		if (flags & SDL_WINDOW_OPENGL && contextVersion > 0)
 		{
 			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major);
@@ -1256,7 +1276,8 @@ void GLimp_EndFrame(void)
 {
 	// don't flip if drawing to front buffer
 	//FIXME: remove this nonesense
-	if (Q_stricmp(Cvar_VariableString("r_drawBuffer"), "GL_FRONT") != 0)
+	// the Vulkan renderer presents the frame itself
+	if (Q_stricmp(Cvar_VariableString("r_drawBuffer"), "GL_FRONT") != 0 && SDL_glContext != NULL)
 	{
 		SDL_GL_SwapWindow(main_window);
 	}
@@ -1316,6 +1337,59 @@ void GLimp_EndFrame(void)
 		gammaResetTime = 0;
 	}
 #endif
+}
+
+#ifdef FEATURE_RENDERER_VULKAN
+/**
+ * @brief Resolve a Vulkan function through the loader, used by the Vulkan renderer
+ * @param[in] instance VkInstance, NULL for global functions
+ * @param[in] name
+ * @return
+ */
+void *VK_GetInstanceProcAddr(void *instance, const char *name)
+{
+	// SDL_vulkan.h doesn't include the Vulkan headers, declare the loader entry point type here
+	typedef void *(ETL_VKAPI_PTR *getInstanceProcAddr_t)(VkInstance instance, const char *name);
+	getInstanceProcAddr_t getInstanceProcAddr = (getInstanceProcAddr_t)SDL_Vulkan_GetVkGetInstanceProcAddr();
+
+	if (!getInstanceProcAddr)
+	{
+		return NULL;
+	}
+
+	return (void *)getInstanceProcAddr((VkInstance)instance, name);
+}
+
+/**
+ * @brief Create the Vulkan surface of the main window
+ * @param[in] instance VkInstance
+ * @param[out] pSurface VkSurfaceKHR
+ * @return
+ */
+qboolean VK_CreateSurface(void *instance, void *pSurface)
+{
+	if (SDL_Vulkan_CreateSurface(main_window, (VkInstance)instance, (VkSurfaceKHR *)pSurface) == SDL_TRUE)
+	{
+		return qtrue;
+	}
+
+	Com_Printf("SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError());
+	return qfalse;
+}
+#endif
+
+/**
+ * @brief Tell if the main window is minimized
+ * @return
+ */
+qboolean GLimp_IsMinimized(void)
+{
+	if (main_window && (SDL_GetWindowFlags(main_window) & SDL_WINDOW_MINIMIZED))
+	{
+		return qtrue;
+	}
+
+	return qfalse;
 }
 
 /**

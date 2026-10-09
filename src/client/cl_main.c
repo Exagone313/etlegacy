@@ -3107,6 +3107,11 @@ void CL_InitRef(void)
 	ri.GLimp_SwapFrame   = GLimp_EndFrame;
 	ri.GLimp_SetGamma    = GLimp_SetGamma;
 	ri.GLimp_SplashImage = GLimp_SplashImage;
+	ri.CL_IsMinimized    = GLimp_IsMinimized;
+#ifdef FEATURE_RENDERER_VULKAN
+	ri.VK_GetInstanceProcAddr = VK_GetInstanceProcAddr;
+	ri.VK_CreateSurface       = VK_CreateSurface;
+#endif
 
 	//ri.ftol = Q_ftol;
 

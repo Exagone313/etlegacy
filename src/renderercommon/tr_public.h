@@ -266,6 +266,11 @@ typedef struct
 
 	qboolean (*GLimp_SplashImage)(qboolean (*LoadSplashImage)(const char *name, byte *data, unsigned int size, unsigned int width, unsigned int height, uint8_t bytes));
 
+	// Vulkan renderer, NULL when the client was built without it
+	void *(*VK_GetInstanceProcAddr)(void *instance, const char *name);
+	qboolean (*VK_CreateSurface)(void *instance, void *pSurface);
+	qboolean (*CL_IsMinimized)(void);
+
 } refimport_t;
 
 /// this is the only function actually exported at the linker level
