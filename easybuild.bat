@@ -103,12 +103,10 @@ IF NOT "%1"=="" (
 		SET build_type=Debug
 	) ELSE IF /I "%1"=="-nor2" (
 		SET build_r2=0
-SET build_vk=0
 	) ELSE IF /I "%1"=="-no-r2" (
 		SET build_r2=0
 	) ELSE IF /I "%1"=="-vulkan" (
 		SET build_vk=1
-SET build_vk=0
 	) ELSE IF /I "%1"=="-generator" (
 		SET generator=%~2
 		SHIFT
