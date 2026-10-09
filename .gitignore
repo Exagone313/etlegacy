@@ -22,6 +22,7 @@ etmain/ui/git_version.h
 *.sh
 !/misc/*.sh
 !/release.sh
+!/src/renderer_vk/shaders/compile.sh
 /.directory
 *.kdev4
 
