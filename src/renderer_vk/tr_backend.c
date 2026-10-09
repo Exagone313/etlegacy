@@ -1350,6 +1350,8 @@ const void *RB_DrawSurfs(const void *data)
 	return ( const void * ) (cmd + 1);
 }
 
+static void RB_BeginFrame(void);
+
 /**
  * @brief RB_DrawBuffer
  * @param[in] data
@@ -1359,6 +1361,19 @@ const void *RB_DrawBuffer(const void *data)
 {
 	const drawBufferCommand_t *cmd = ( const drawBufferCommand_t * ) data;
 
+	RB_BeginFrame();
+
+	return ( const void * ) (cmd + 1);
+}
+
+/**
+ * @brief Start recording the frame command buffer
+ *
+ * Also used for 2D commands queued before RE_BeginFrame(), e.g. the cgame loading
+ * screen, which OpenGL draws into the back buffer before the frame's own commands.
+ */
+static void RB_BeginFrame(void)
+{
 	vk_begin_frame();
 
 	tess.depthRange = DEPTH_RANGE_NORMAL;
@@ -1375,8 +1390,6 @@ const void *RB_DrawBuffer(const void *data)
 		vk_clear_color(color);
 		backEnd.projection2D = qfalse;
 	}
-
-	return ( const void * ) (cmd + 1);
 }
 
 /**
@@ -1613,6 +1626,24 @@ void RB_ExecuteRenderCommands(const void *data)
 	while (1)
 	{
 		data = PADP(data, sizeof(intptr_t));
+
+		// drawing needs a command buffer in recording state
+		if (!vk.frame_count)
+		{
+			switch (*( const int * ) data)
+			{
+			case RC_STRETCH_PIC:
+			case RC_2DPOLYS:
+			case RC_ROTATED_PIC:
+			case RC_STRETCH_PIC_GRADIENT:
+			case RC_DRAW_SURFS:
+				RB_BeginFrame();
+				break;
+			default:
+				break;
+			}
+		}
+
 		switch (*( const int * ) data)
 		{
 		case RC_SET_COLOR:
