@@ -38,8 +38,7 @@ if(BUILD_CLIENT)
 		endif()
 	endif()
 
-	# temp. added vulkan to the list of dependencies
-	if(FEATURE_RENDERER1 OR FEATURE_RENDERER2 OR FEATURE_RENDERER_VULKAN)
+	if(FEATURE_RENDERER1 OR FEATURE_RENDERER2)
 		# ghost target to link all opengl renderer libraries
 		add_library(opengl_renderer_libs INTERFACE)
 		if(NOT BUNDLED_GLEW)
@@ -69,19 +68,12 @@ if(BUILD_CLIENT)
 
 		target_link_libraries(renderer_gl1_libraries INTERFACE opengl_renderer_libs)
 		target_link_libraries(renderer_gl2_libraries INTERFACE opengl_renderer_libs)
-		target_link_libraries(renderer_vulkan_libraries INTERFACE opengl_renderer_libs)
 	endif()
 
 	if(FEATURE_RENDERER_GLES)
 		find_package(GLES REQUIRED)
 		target_link_libraries(renderer_gles_libraries INTERFACE ${GLES_LIBRARY})
 		target_include_directories(renderer_gles_libraries INTERFACE ${GLES_INCLUDE_DIR})
-	endif()
-
-	if(FEATURE_RENDERER_VULKAN)
-		# FIXME: use the vulkan sdk for now, swap to headers only at some point
-		find_package(Vulkan REQUIRED)
-		target_link_libraries(renderer_vulkan_libraries INTERFACE Vulkan::Vulkan)
 	endif()
 
 	if(NOT BUNDLED_SDL)

@@ -351,6 +351,9 @@ parse_commandline() {
         elif [ "$var" = "-nor2" ] || [ "$var" = "-no-r2" ]; then
             einfo "Will disable renderer2"
             FEATURE_RENDERER2=0
+        elif [ "$var" = "-vulkan" ]; then
+            einfo "Will enable the experimental Vulkan renderer"
+            FEATURE_RENDERER_VULKAN=1
         elif [ "$var" = "-nodynamic" ] || [ "$var" = "-no-dynamic" ]; then
             einfo "Will disable dynamic renderer build"
             RENDERER_DYNAMIC=0
@@ -400,6 +403,7 @@ parse_commandline() {
             FEATURE_RENDERER_GLES=0
             RENDERER_DYNAMIC=0
             FEATURE_RENDERER2=0
+            FEATURE_RENDERER_VULKAN=0
             FEATURE_OGG_VORBIS=1
             FEATURE_THEORA=1
             BUNDLED_GLEW=1
@@ -420,6 +424,7 @@ parse_commandline() {
             BUILD_SERVER=0
             FEATURE_RENDERER2=0
             FEATURE_RENDERER_GLES=0
+            FEATURE_RENDERER_VULKAN=0
             RENDERER_DYNAMIC=0
 
             FEATURE_CURL=0
@@ -446,6 +451,7 @@ parse_commandline() {
             BUILD_SERVER=1
             FEATURE_RENDERER2=0
             FEATURE_RENDERER_GLES=0
+            FEATURE_RENDERER_VULKAN=0
             RENDERER_DYNAMIC=0
 
             FEATURE_OGG_VORBIS=0
@@ -545,6 +551,7 @@ generate_configuration() {
     FEATURE_RENDERER1=${FEATURE_RENDERER1:-1}
     FEATURE_RENDERER2=${FEATURE_RENDERER2:-0}
     FEATURE_RENDERER_GLES=${FEATURE_RENDERER_GLES:-0}
+    FEATURE_RENDERER_VULKAN=${FEATURE_RENDERER_VULKAN:-0}
     RENDERER_DYNAMIC=${RENDERER_DYNAMIC:-1}
 
     if [ "$FEATURE_SSL" -eq 0 ] && [ "$FEATURE_AUTH" -eq 1 ]; then
@@ -632,6 +639,7 @@ generate_configuration() {
         "-DFEATURE_RENDERER1=${FEATURE_RENDERER1}"
         "-DFEATURE_RENDERER2=${FEATURE_RENDERER2}"
         "-DFEATURE_RENDERER_GLES=${FEATURE_RENDERER_GLES}"
+        "-DFEATURE_RENDERER_VULKAN=${FEATURE_RENDERER_VULKAN}"
         "-DRENDERER_DYNAMIC=${RENDERER_DYNAMIC}"
         "-DFEATURE_LUASQL=${FEATURE_LUASQL}"
         "-DFEATURE_OMNIBOT=${FEATURE_OMNIBOT}"
@@ -1020,7 +1028,7 @@ print_help() {
     ehead "help - print this help"
     echo
     einfo "Properties"
-    ehead "-64, -32, -debug, -clang, -lsp, -nodb -nor2, -nodynamic, -nossl, -systemlibs"
+    ehead "-64, -32, -debug, -clang, -lsp, -nodb -nor2, -vulkan, -nodynamic, -nossl, -systemlibs"
     ehead "-noextra, -noupdate, -mod, -server, -ninja, -nopk3, -lsp"
     ehead "--build=*, --prefix=*, --osx=* --osx-arc=*"
     ehead "--silent -etpub -jaymod -nq"
