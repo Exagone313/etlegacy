@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_main.c
+ * @file renderer_vk/tr_main.c
  * @brief Main control flow for each frame
  */
 

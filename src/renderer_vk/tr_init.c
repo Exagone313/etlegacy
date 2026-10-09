@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_init.c
+ * @file renderer_vk/tr_init.c
  * @brief Functions that are not called every frame
  */
 
@@ -40,136 +40,6 @@ qboolean   textureFilterAnisotropic = qfalse;
 float      maxAnisotropy            = 2.f;
 
 glstate_t glState;
-
-static void GfxInfo_f(void);
-
-#ifdef USE_RENDERER_DLOPEN
-#if idppc
-cvar_t *com_altivec;
-#endif
-#endif
-
-cvar_t *r_flareSize;
-cvar_t *r_flareFade;
-
-cvar_t *r_railWidth;
-cvar_t *r_railSegmentLength;
-
-cvar_t *r_ignoreFastPath;
-
-cvar_t *r_ignore;
-
-cvar_t *r_detailTextures;
-
-cvar_t *r_zNear;
-cvar_t *r_zFar;
-
-cvar_t *r_skipBackEnd;
-
-cvar_t *r_greyScale;
-
-cvar_t *r_measureOverdraw;
-
-cvar_t *r_fastSky;
-cvar_t *r_drawSun;
-cvar_t *r_dynamicLight;
-
-cvar_t *r_lodBias;
-cvar_t *r_lodScale;
-
-cvar_t *r_noreFresh;
-cvar_t *r_drawEntities;
-cvar_t *r_drawWorld;
-cvar_t *r_drawFoliage;
-cvar_t *r_speeds;
-
-cvar_t *r_noVis;
-cvar_t *r_noCull;
-cvar_t *r_facePlaneCull;
-cvar_t *r_showCluster;
-cvar_t *r_noCurves;
-
-cvar_t *r_allowExtensions;
-
-cvar_t *r_extCompressedTextures;
-cvar_t *r_extMultitexture;
-cvar_t *r_extTextureEnvAdd;
-
-cvar_t *r_extTextureFilterAnisotropic;
-cvar_t *r_extMaxAnisotropy;
-
-cvar_t *r_ignoreGLErrors;
-cvar_t *r_logFile;
-
-cvar_t *r_textureBits;
-
-cvar_t *r_drawBuffer;
-cvar_t *r_lightMap;
-cvar_t *r_uiFullScreen;
-cvar_t *r_shadows;
-cvar_t *r_portalSky;
-cvar_t *r_flares;
-cvar_t *r_noBind;
-cvar_t *r_singleShader;
-cvar_t *r_roundImagesDown;
-cvar_t *r_colorMipLevels;
-cvar_t *r_picMip;
-cvar_t *r_showTris;
-cvar_t *r_trisColor;
-cvar_t *r_showSky;
-cvar_t *r_showNormals;
-cvar_t *r_normalLength;
-//cvar_t *r_showmodelbounds; // see RB_MDM_SurfaceAnim()
-cvar_t *r_finish;
-cvar_t *r_clear;
-cvar_t *r_textureMode;
-cvar_t *r_offsetFactor;
-cvar_t *r_offsetUnits;
-cvar_t *r_gamma;
-cvar_t *r_intensity;
-cvar_t *r_lockPvs;
-cvar_t *r_noportals;
-cvar_t *r_portalOnly;
-
-cvar_t *r_subDivisions;
-cvar_t *r_lodCurveError;
-
-cvar_t *r_overBrightBits;
-cvar_t *r_mapOverBrightBits;
-
-cvar_t *r_debugSurface;
-cvar_t *r_simpleMipMaps;
-
-cvar_t *r_showImages;
-
-cvar_t *r_ambientScale;
-cvar_t *r_directedScale;
-cvar_t *r_debugLight;
-cvar_t *r_debugSort;
-cvar_t *r_printShaders;
-//cvar_t *r_saveFontData;
-
-cvar_t *r_cache;
-cvar_t *r_cacheShaders;
-cvar_t *r_cacheModels;
-
-cvar_t *r_cacheGathering;
-
-cvar_t *r_bonesDebug;
-
-cvar_t *r_fbo;
-
-cvar_t *r_wolfFog;
-
-cvar_t *r_screenshotFormat;
-cvar_t *r_screenshotJpegQuality;
-
-cvar_t *r_maxPolys;
-cvar_t *r_maxPolyVerts;
-
-cvar_t *r_gfxInfo;
-
-cvar_t *r_scale;
 
 /**
  * @brief This function is responsible for initializing a valid OpenGL subsystem
@@ -191,19 +61,29 @@ static void InitOpenGL(void)
 
 	if (glConfig.vidWidth == 0)
 	{
+		char  glConfigString[1024] = { 0 };
 		char  renderer_buffer[1024];
 		GLint temp;
 
 		Com_Memset(&glConfig, 0, sizeof(glConfig));
 
-		char glConfigString[1024] = { 0 };
-		Info_SetValueForKey(glConfigString, "type", "vulkan");
+		Info_SetValueForKey(glConfigString, "type", "opengl");
 		Info_SetValueForKey(glConfigString, "major", "1");
-		Info_SetValueForKey(glConfigString, "minor", "2");
+		Info_SetValueForKey(glConfigString, "minor", "1");
+
+		// If we are using FBO's then disable multisampling on the main screen buffer
+		if (r_fbo->integer)
+		{
+			Info_SetValueForKey(glConfigString, "samples", "0");
+		}
+		else
+		{
+			Info_SetValueForKey(glConfigString, "samples", va("%d", r_ext_multisample->integer));
+		}
 
 		ri.GLimp_Init(&glConfig, glConfigString);
 
-		Q_strncpyz(renderer_buffer, glConfig.renderer_string, renderer_buffer);
+		Q_strncpyz(renderer_buffer, glConfig.renderer_string, sizeof(renderer_buffer));
 		Q_strlwr(renderer_buffer);
 
 		// OpenGL driver constants
@@ -237,7 +117,7 @@ static void InitOpenGL(void)
 void GL_CheckErrors(void)
 {
 	unsigned int err;
-	char         s[64];
+	char         *s;
 
 	if (r_ignoreGLErrors->integer)
 	{
@@ -1036,165 +916,6 @@ void GfxInfo_f(void)
 }
 
 /**
- * @brief R_Register
- */
-void R_Register(void)
-{
-#ifdef USE_RENDERER_DLOPEN
-#if idppc
-	com_altivec = ri.Cvar_Get("com_altivec", "1", CVAR_ARCHIVE);
-#endif
-#endif
-
-	// latched and archived variables
-	r_allowExtensions       = ri.Cvar_Get("r_allowExtensions", "1", CVAR_ARCHIVE_ND | CVAR_LATCH | CVAR_UNSAFE);
-	r_extCompressedTextures = ri.Cvar_Get("r_ext_compressed_textures", "1", CVAR_ARCHIVE_ND | CVAR_LATCH | CVAR_UNSAFE);
-	r_extMultitexture       = ri.Cvar_Get("r_ext_multitexture", "1", CVAR_ARCHIVE_ND | CVAR_LATCH | CVAR_UNSAFE);
-	r_extTextureEnvAdd      = ri.Cvar_Get("r_ext_texture_env_add", "1", CVAR_ARCHIVE_ND | CVAR_LATCH);
-
-	r_extTextureFilterAnisotropic = ri.Cvar_Get("r_ext_texture_filter_anisotropic", "0", CVAR_ARCHIVE_ND | CVAR_LATCH | CVAR_UNSAFE);
-	r_extMaxAnisotropy            = ri.Cvar_Get("r_ext_max_anisotropy", "2", CVAR_ARCHIVE_ND | CVAR_LATCH);
-
-	r_picMip = ri.Cvar_Get("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH);          // mod for DM and DK for id build.  was "1" - pushed back to 1
-	ri.Cvar_CheckRange(r_picMip, 0, 3, qtrue);
-	r_roundImagesDown = ri.Cvar_Get("r_roundImagesDown", "1", CVAR_ARCHIVE_ND | CVAR_LATCH);
-
-	r_colorMipLevels = ri.Cvar_Get("r_colorMipLevels", "0", CVAR_LATCH);
-	r_detailTextures = ri.Cvar_Get("r_detailtextures", "1", CVAR_ARCHIVE_ND | CVAR_LATCH);
-	r_textureBits    = ri.Cvar_Get("r_texturebits", "0", CVAR_ARCHIVE_ND | CVAR_LATCH | CVAR_UNSAFE);
-
-	r_overBrightBits = ri.Cvar_Get("r_overBrightBits", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);        // disable overbrightbits by default
-	ri.Cvar_CheckRange(r_overBrightBits, 0, 1, qtrue);                                    // limit to overbrightbits 1 (sorry 1337 players)
-	r_simpleMipMaps = ri.Cvar_Get("r_simpleMipMaps", "1", CVAR_ARCHIVE_ND | CVAR_LATCH);
-	r_uiFullScreen  = ri.Cvar_Get("r_uifullscreen", "0", 0);
-
-	r_subDivisions = ri.Cvar_Get("r_subdivisions", "4", CVAR_ARCHIVE_ND | CVAR_LATCH);
-
-	r_ignoreFastPath = ri.Cvar_Get("r_ignoreFastPath", "0", CVAR_ARCHIVE | CVAR_LATCH);    // use fast path by default
-	r_greyScale      = ri.Cvar_Get("r_greyscale", "0", CVAR_ARCHIVE_ND | CVAR_LATCH);
-
-	// temporary latched variables that can only change over a restart
-	r_mapOverBrightBits = ri.Cvar_Get("r_mapOverBrightBits", "2", CVAR_ARCHIVE_ND | CVAR_LATCH);
-	ri.Cvar_CheckRange(r_mapOverBrightBits, 0, 3, qtrue);
-	r_intensity = ri.Cvar_Get("r_intensity", "1", CVAR_LATCH);
-	ri.Cvar_CheckRange(r_intensity, 0, 1.5, qfalse);
-	r_singleShader = ri.Cvar_Get("r_singleShader", "0", CVAR_CHEAT | CVAR_LATCH);
-
-	// archived variables that can change at any time
-	r_lodCurveError = ri.Cvar_Get("r_lodCurveError", "250", CVAR_ARCHIVE_ND);
-	r_lodBias       = ri.Cvar_Get("r_lodbias", "0", CVAR_ARCHIVE_ND);
-	r_flares        = ri.Cvar_Get("r_flares", "1", CVAR_ARCHIVE);
-	r_zNear         = ri.Cvar_Get("r_znear", "3", CVAR_CHEAT); // changed it to 3 (from 4) because of lean/fov cheats
-	ri.Cvar_CheckRange(r_zNear, 0.001f, 200, qfalse);
-	r_zFar = ri.Cvar_Get("r_zfar", "0", CVAR_CHEAT);
-
-	r_ignoreGLErrors = ri.Cvar_Get("r_ignoreGLErrors", "1", CVAR_ARCHIVE_ND);
-	r_fastSky        = ri.Cvar_Get("r_fastsky", "0", CVAR_ARCHIVE_ND);
-
-	r_drawSun      = ri.Cvar_Get("r_drawSun", "1", CVAR_ARCHIVE_ND);
-	r_dynamicLight = ri.Cvar_Get("r_dynamiclight", "1", CVAR_ARCHIVE);
-	r_finish       = ri.Cvar_Get("r_finish", "0", CVAR_ARCHIVE_ND);
-	r_textureMode  = ri.Cvar_Get("r_textureMode", "GL_LINEAR_MIPMAP_NEAREST", CVAR_ARCHIVE);
-	r_gamma        = ri.Cvar_Get("r_gamma", "1.3", CVAR_ARCHIVE_ND);
-
-	r_facePlaneCull = ri.Cvar_Get("r_facePlaneCull", "1", CVAR_ARCHIVE_ND);
-
-	r_railWidth         = ri.Cvar_Get("r_railWidth", "16", CVAR_ARCHIVE_ND);
-	r_railSegmentLength = ri.Cvar_Get("r_railSegmentLength", "32", CVAR_ARCHIVE_ND);
-
-	r_ambientScale  = ri.Cvar_Get("r_ambientScale", "0.5", CVAR_CHEAT);
-	r_directedScale = ri.Cvar_Get("r_directedScale", "1", CVAR_CHEAT);
-
-	// temporary variables that can change at any time
-	r_showImages = ri.Cvar_Get("r_showImages", "0", CVAR_TEMP);
-
-	r_debugLight   = ri.Cvar_Get("r_debuglight", "0", CVAR_TEMP);
-	r_debugSort    = ri.Cvar_Get("r_debugSort", "0", CVAR_CHEAT);
-	r_printShaders = ri.Cvar_Get("r_printShaders", "0", 0);
-	//r_saveFontData = ri.Cvar_Get("r_saveFontData", "0", 0); // used to generate texture font file
-
-	r_cache        = ri.Cvar_Get("r_cache", "1", CVAR_LATCH); // leaving it as this for backwards compability. but it caches models and shaders also
-	r_cacheShaders = ri.Cvar_Get("r_cacheShaders", "1", CVAR_LATCH);
-
-	r_cacheModels    = ri.Cvar_Get("r_cacheModels", "1", CVAR_LATCH);
-	r_cacheGathering = ri.Cvar_Get("cl_cacheGathering", "0", 0);
-	r_bonesDebug     = ri.Cvar_Get("r_bonesDebug", "0", CVAR_CHEAT);
-
-	r_fbo = ri.Cvar_Get("r_fbo", "1", CVAR_LATCH);
-
-	r_wolfFog = ri.Cvar_Get("r_wolffog", "1", CVAR_ARCHIVE);
-
-	r_noCurves    = ri.Cvar_Get("r_nocurves", "0", CVAR_CHEAT);
-	r_drawWorld   = ri.Cvar_Get("r_drawworld", "1", CVAR_CHEAT);
-	r_drawFoliage = ri.Cvar_Get("r_drawfoliage", "1", CVAR_CHEAT);
-	r_lightMap    = ri.Cvar_Get("r_lightmap", "0", CVAR_CHEAT);
-	r_portalOnly  = ri.Cvar_Get("r_portalOnly", "0", CVAR_CHEAT);
-
-	r_flareSize = ri.Cvar_Get("r_flareSize", "40", CVAR_CHEAT);
-	ri.Cvar_Set("r_flareFade", "5");    // to force this when people already have "7" in their config
-	r_flareFade = ri.Cvar_Get("r_flareFade", "5", CVAR_CHEAT);
-
-	r_skipBackEnd = ri.Cvar_Get("r_skipBackEnd", "0", CVAR_CHEAT);
-
-	r_measureOverdraw = ri.Cvar_Get("r_measureOverdraw", "0", CVAR_CHEAT);
-	r_lodScale        = ri.Cvar_Get("r_lodscale", "5", CVAR_ARCHIVE_ND | CVAR_LATCH);
-	r_noreFresh       = ri.Cvar_Get("r_norefresh", "0", CVAR_CHEAT);
-	r_drawEntities    = ri.Cvar_Get("r_drawentities", "1", CVAR_CHEAT);
-	r_ignore          = ri.Cvar_Get("r_ignore", "1", CVAR_CHEAT);
-	r_noCull          = ri.Cvar_Get("r_nocull", "0", CVAR_CHEAT);
-	r_noVis           = ri.Cvar_Get("r_novis", "0", CVAR_CHEAT);
-	r_showCluster     = ri.Cvar_Get("r_showcluster", "0", CVAR_CHEAT);
-	r_speeds          = ri.Cvar_Get("r_speeds", "0", CVAR_CHEAT);
-
-	r_logFile      = ri.Cvar_Get("r_logFile", "0", CVAR_CHEAT);
-	r_debugSurface = ri.Cvar_Get("r_debugSurface", "0", CVAR_CHEAT);
-	r_noBind       = ri.Cvar_Get("r_nobind", "0", CVAR_CHEAT);
-	r_showTris     = ri.Cvar_Get("r_showtris", "0", CVAR_CHEAT);
-	r_trisColor    = ri.Cvar_Get("r_trisColor", "1.0 1.0 1.0 1.0", CVAR_ARCHIVE_ND);
-	r_showSky      = ri.Cvar_Get("r_showsky", "0", CVAR_CHEAT);
-	r_showNormals  = ri.Cvar_Get("r_shownormals", "0", CVAR_CHEAT);
-	r_normalLength = ri.Cvar_Get("r_normallength", "0.5", CVAR_ARCHIVE_ND);
-	//r_showmodelbounds = ri.Cvar_Get("r_showmodelbounds", "0", CVAR_CHEAT); // see RB_MDM_SurfaceAnim()
-	r_clear        = ri.Cvar_Get("r_clear", "0", CVAR_CHEAT);
-	r_offsetFactor = ri.Cvar_Get("r_offsetfactor", "-1", CVAR_CHEAT);
-	r_offsetUnits  = ri.Cvar_Get("r_offsetunits", "-2", CVAR_CHEAT);
-	r_drawBuffer   = ri.Cvar_Get("r_drawBuffer", "GL_BACK", CVAR_CHEAT);
-	r_lockPvs      = ri.Cvar_Get("r_lockpvs", "0", CVAR_CHEAT);
-	r_noportals    = ri.Cvar_Get("r_noportals", "0", CVAR_CHEAT);
-	r_shadows      = ri.Cvar_Get("cg_shadows", "0", 0);
-
-	r_screenshotFormat      = ri.Cvar_Get("r_screenshotFormat", "2", CVAR_ARCHIVE_ND);
-	r_screenshotJpegQuality = ri.Cvar_Get("r_screenshotJpegQuality", "90", CVAR_ARCHIVE_ND);
-
-	r_portalSky = ri.Cvar_Get("cg_skybox", "1", 0);
-
-	// note: MAX_POLYS and MAX_POLYVERTS are heavily increased in ET compared to q3
-	//       - but run 20 bots on oasis and you'll see limits reached (developer 1)
-	//       - modern computers can deal with more than our old default values -> users can increase this now to MAX_POLYS/MAX_POLYVERTS
-	r_maxPolys = ri.Cvar_Get("r_maxpolys", va("%d", DEFAULT_POLYS), CVAR_LATCH);             // now latched to check against used r_maxpolys and not MAX_POLYS
-	ri.Cvar_CheckRange(r_maxPolys, MIN_POLYS, MAX_POLYS, qtrue);                        // MIN_POLYS was old static value
-	r_maxPolyVerts = ri.Cvar_Get("r_maxpolyverts", va("%d", DEFAULT_POLYVERTS), CVAR_LATCH); // now latched to check against used r_maxpolyverts and not MAX_POLYVERTS
-	ri.Cvar_CheckRange(r_maxPolyVerts, MIN_POLYVERTS, MAX_POLYVERTS, qtrue);            // MIN_POLYVERTS was old static value
-
-	r_gfxInfo = ri.Cvar_Get("r_gfxinfo", "0", 0); // less spammy gfx output at start - enable to print full GL_EXTENSION string
-
-	r_scale = ri.Cvar_Get("r_scale", "1", CVAR_ARCHIVE | CVAR_LATCH);
-
-	// make sure all the commands added here are also
-	// removed in R_Shutdown
-	ri.Cmd_AddSystemCommand("imagelist", R_ImageList_f, "Print out the list of images loaded", NULL);
-	ri.Cmd_AddSystemCommand("shaderlist", R_ShaderList_f, "Print out the list of shaders loaded", NULL);
-	ri.Cmd_AddSystemCommand("skinlist", R_SkinList_f, "Print out the list of skins", NULL);
-	ri.Cmd_AddSystemCommand("modellist", R_Modellist_f, "Print out the list of loaded models", NULL);
-	ri.Cmd_AddSystemCommand("screenshot", R_ScreenShot_f, "Take a screenshot of current frame", NULL);
-	ri.Cmd_AddSystemCommand("screenshotJPEG", R_ScreenShot_f, "Take a JPEG screenshot of current frame", NULL);
-	ri.Cmd_AddSystemCommand("gfxinfo", GfxInfo_f, "Print GFX info of current system", NULL);
-	ri.Cmd_AddSystemCommand("taginfo", R_TagInfo_f, "Print the list of loaded tags", NULL);
-
-	R_RegisterCommon();
-}
-
-/**
  * @brief R_Init
  */
 void R_Init(void)
@@ -1287,6 +1008,7 @@ void R_Init(void)
 
 void R_PurgeCache(void)
 {
+	R_PurgeDynamicShaders();
 	R_PurgeShaders(9999999);
 	R_PurgeBackupImages(9999999);
 	R_PurgeModels(9999999);

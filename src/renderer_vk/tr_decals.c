@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_decals.c
+ * @file renderer_vk/tr_decals.c
  * @brief Handles projection of decals (nee marks) onto brush model surfaces
  */
 

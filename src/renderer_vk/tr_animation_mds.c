@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_animation_mds.c
+ * @file renderer_vk/tr_animation_mds.c
  */
 
 #include "tr_local.h"

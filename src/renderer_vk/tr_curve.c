@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_curve.c
+ * @file renderer_vk/tr_curve.c
  *
  * @brief This file does all of the processing necessary to turn a raw grid of
  * points read from the map file into a srfGridMesh_t ready for rendering.

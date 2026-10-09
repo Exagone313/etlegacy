@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_marks.c
+ * @file renderer_vk/tr_marks.c
  * @brief Polygon projection on the world polygons
  */
 

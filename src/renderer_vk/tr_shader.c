@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_shader.c
+ * @file renderer_vk/tr_shader.c
  * @brief Parsing and definition of shaders
  */
 #include "tr_local.h"
@@ -3014,15 +3014,7 @@ qboolean RE_LoadDynamicShader(const char *shadername, const char *shadertext)
 	// empty the whole list
 	if (!shadername && !shadertext)
 	{
-		dptr = dshader;
-		while (dptr)
-		{
-			lastdptr = dptr->next;
-			ri.Free(dptr->shadertext);
-			ri.Free(dptr);
-			dptr = lastdptr;
-		}
-		dshader = NULL;
+		R_PurgeDynamicShaders();
 		return qtrue;
 	}
 
@@ -3983,6 +3975,24 @@ void R_PurgeShaders(int count)
 	purgeallshaders = qtrue;
 	R_PurgeLightmapShaders();
 	purgeallshaders = qfalse;
+}
+
+/**
+ * @brief R_PurgeDynamicShaders
+ */
+void R_PurgeDynamicShaders(void)
+{
+	dynamicshader_t *dptr, *lastdptr;
+
+	dptr = dshader;
+	while (dptr)
+	{
+		lastdptr = dptr->next;
+		ri.Free(dptr->shadertext);
+		ri.Free(dptr);
+		dptr = lastdptr;
+	}
+	dshader = NULL;
 }
 
 /**

@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_fbo.c
+ * @file renderer_vk/tr_fbo.c
  * @brief framebuffer object handling for r1
  */
 
@@ -95,6 +95,8 @@ static void R_SetFBOViewport(frameBuffer_t *fb)
 
 void R_FBOSetViewport(frameBuffer_t *from, frameBuffer_t *to)
 {
+	frameBuffer_t *com;
+
 	if (!tr.useFBO)
 	{
 		return;
@@ -121,7 +123,7 @@ void R_FBOSetViewport(frameBuffer_t *from, frameBuffer_t *to)
 		return;
 	}
 
-	frameBuffer_t *com = NULL;
+	com = NULL;
 	if (from)
 	{
 		com = from;
@@ -140,6 +142,21 @@ void R_FBOSetViewport(frameBuffer_t *from, frameBuffer_t *to)
 		else
 		{
 			R_SetWindowViewport();
+		}
+	}
+}
+
+static void R_FBO_DrawBuffer(frameBuffer_t *fb, fboBinding binding)
+{
+	if (binding == BOTH || binding == WRITE)
+	{
+		if (fb)
+		{
+			glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+		}
+		else
+		{
+			glDrawBuffer(GL_BACK);
 		}
 	}
 }
@@ -182,15 +199,8 @@ void R_BindFBO(frameBuffer_t *fb)
 
 	current = fb;
 
-	if (fb)
-	{
-		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fb->fbo);
-	}
-	else
-	{
-		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-		glDrawBuffer(GL_BACK);
-	}
+	R_BindFBOAs(fb, BOTH);
+	R_FBO_DrawBuffer(fb, BOTH);
 }
 
 frameBuffer_t *R_CurrentFBO()
@@ -236,6 +246,7 @@ static frameBuffer_t *R_GetCurrentFBO(fboBinding binding)
 	}
 
 	Ren_Fatal("Invalid FBO id: %i\n", id);
+	return NULL; // this never get's hit at runtime but we do it to appease MSVC
 }
 
 byte *R_FBOReadPixels(frameBuffer_t *fb, size_t *offset, int *padlen)
@@ -268,7 +279,7 @@ byte *R_FBOReadPixels(frameBuffer_t *fb, size_t *offset, int *padlen)
 
 static void R_CreateFBODepthAttachment(frameBuffer_t *fb, int samples, int stencilBits, qboolean texture)
 {
-	// if multisampled have this route..
+	// if multi sampled have this route...
 	if (samples)
 	{
 		glGenRenderbuffersEXT(1, &fb->depthBuffer);
@@ -292,7 +303,7 @@ static void R_CreateFBODepthAttachment(frameBuffer_t *fb, int samples, int stenc
 		return;
 	}
 
-	// if we want a texture attachment then this path..
+	// if we want a texture attachment then this path...
 	if (texture)
 	{
 		glGenTextures(1, &fb->depth);
@@ -392,12 +403,12 @@ static void R_DestroyFBO(frameBuffer_t *fb)
 
 	if (fb->colorBuffer)
 	{
-		glDeleteRenderbuffersEXT(GL_RENDERBUFFER_EXT, &fb->colorBuffer);
+		glDeleteRenderbuffersEXT(1, &fb->colorBuffer);
 	}
 
 	if (fb->depthBuffer)
 	{
-		glDeleteRenderbuffersEXT(GL_RENDERBUFFER_EXT, &fb->depthBuffer);
+		glDeleteRenderbuffersEXT(1, &fb->depthBuffer);
 	}
 
 	R_BindFBO(NULL);
@@ -582,12 +593,14 @@ void R_FboBlit(frameBuffer_t *from, frameBuffer_t *to)
 
 void R_FboRenderTo(frameBuffer_t *from, frameBuffer_t *to)
 {
+	frameBuffer_t *tmp;
+
 	if (!tr.useFBO)
 	{
 		return;
 	}
 
-	frameBuffer_t *tmp = current;
+	tmp = current;
 
 	if (!blitProgram)
 	{
@@ -621,6 +634,10 @@ void R_FboRenderTo(frameBuffer_t *from, frameBuffer_t *to)
 
 void R_InitFBO(void)
 {
+	int   samples;
+	int   stencil;
+	GLint blitProgramMap;
+
 	Com_Memset(&systemFbos, 0, sizeof(frameBuffer_t) * MAX_FBOS);
 
 	current     = NULL;
@@ -644,8 +661,8 @@ void R_InitFBO(void)
 	mainFbo   = NULL;
 	msMainFbo = NULL;
 
-	int samples = ri.Cvar_VariableIntegerValue("r_ext_multisample");
-	int stencil = ri.Cvar_VariableIntegerValue("r_stencilbits");
+	samples = ri.Cvar_VariableIntegerValue("r_ext_multisample");
+	stencil = ri.Cvar_VariableIntegerValue("r_stencilbits");
 
 	GL_CheckErrors();
 
@@ -666,7 +683,7 @@ void R_InitFBO(void)
 	// Setup the blitting program
 	blitProgram = R_CreateShaderProgram(fboBlitVert, fboBlitFrag);
 	R_UseShaderProgram(blitProgram);
-	GLint blitProgramMap = R_GetShaderProgramUniform(blitProgram, "u_CurrentMap");
+	blitProgramMap = R_GetShaderProgramUniform(blitProgram, "u_CurrentMap");
 	glUniform1i(blitProgramMap, 0);
 
 	R_UseShaderProgram(NULL);

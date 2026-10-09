@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_gamma.c
+ * @file renderer_vk/tr_gamma.c
  * @brief Functions that are not called every frame
  */
 
@@ -63,6 +63,21 @@ const char *simpleGammaFrag = "#version 110\n"
                               "gl_FragColor = vec4(pow(texture2D(u_CurrentMap, vec2(gl_TexCoord[0])).rgb, vec3(1.0 / u_gamma)) * u_overBrightBits, 1.0);\n"
                               "}\n";
 
+static void R_GammaSetUniformValues(qboolean force)
+{
+	if (force || gammaProgram.gammaValue != r_gamma->value)
+	{
+		glUniform1f(gammaProgram.gammaUniform, r_gamma->value);
+		gammaProgram.gammaValue = r_gamma->value;
+	}
+
+	if (force || tr.overbrightBits != gammaProgram.overBrightBits)
+	{
+		glUniform1f(gammaProgram.overBrightBitsUniform, (float)(1 << tr.overbrightBits));
+		gammaProgram.overBrightBits = tr.overbrightBits;
+	}
+}
+
 /**
  * @brief R_BuildGammaProgram
  */
@@ -74,6 +89,8 @@ static void R_BuildGammaProgram(void)
 	gammaProgram.currentMapUniform     = R_GetShaderProgramUniform(gammaProgram.program, "u_CurrentMap");
 	gammaProgram.gammaUniform          = R_GetShaderProgramUniform(gammaProgram.program, "u_gamma");
 	gammaProgram.overBrightBitsUniform = R_GetShaderProgramUniform(gammaProgram.program, "u_overBrightBits");
+
+	R_GammaSetUniformValues(qtrue);
 	R_UseShaderProgram(NULL);
 }
 
@@ -114,17 +131,7 @@ void R_ScreenGamma(void)
 		// R_FBOSetViewport(mainFbo, NULL);
 		// R_FboCopyToTex(mainFbo, screenImage);
 
-		if (!gammaProgram.gammaValue || gammaProgram.gammaValue != r_gamma->value)
-		{
-			glUniform1f(gammaProgram.gammaUniform, r_gamma->value);
-			gammaProgram.gammaValue = r_gamma->value;
-		}
-
-		if (tr.overbrightBits != gammaProgram.overBrightBits)
-		{
-			glUniform1f(gammaProgram.overBrightBitsUniform, 1 << tr.overbrightBits);
-			gammaProgram.overBrightBits = tr.overbrightBits;
-		}
+		R_GammaSetUniformValues(qfalse);
 
 		GL_FullscreenQuad();
 
@@ -165,10 +172,8 @@ void R_InitGamma(void)
 	}
 
 	Com_Memset(&gammaProgram, 0, sizeof(gammaProgram_t));
-	gammaProgram.overBrightBits = -1;
 
 	R_BuildGammaProgram();
-
 	GL_CheckErrors();
 
 	tr.gammaProgramUsed = qtrue;

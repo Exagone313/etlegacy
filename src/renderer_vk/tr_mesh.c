@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_mesh.c
+ * @file renderer_vk/tr_mesh.c
  * @warning Any changes made here must be duplicated in tr_cmesh.c for MDC support
  */
 

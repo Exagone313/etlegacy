@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_surface.c
+ * @file renderer_vk/tr_surface.c
  *
  * THIS ENTIRE FILE IS BACK END
  * b ackEnd.currentEntity *will be valid.

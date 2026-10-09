@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_shader_program.c
+ * @file renderer_vk/tr_shader_program.c
  * @brief Opengl 2.0 compatible shader program impl
  */
 

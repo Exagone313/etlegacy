@@ -29,7 +29,7 @@
  * id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
  */
 /**
- * @file renderer/tr_model.c
+ * @file renderer_vk/tr_model.c
  * @brief Model loading and caching
  */
 
@@ -2320,7 +2320,7 @@ void *R_Hunk_Alloc(int size)
 	if (!buf)
 	{
 		FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR) &buf, 0, NULL);
-		Ren_Drop("VirtualAlloc commit failed.\n%s", buf);
+		Ren_Drop("VirtualAlloc commit failed.\n%p", buf);
 	}
 
 #endif
