@@ -1002,18 +1002,23 @@ void RE_Shutdown(qboolean destroyWindow)
 	}
 
 	// the Vulkan device is kept when the window is, the cached images stay valid
-	keepMedia = (r_cache->integer && tr.registered && !destroyWindow && vk.active) ? qtrue : qfalse;
+	keepMedia = (r_cache->integer && !destroyWindow && vk.active) ? qtrue : qfalse;
 
-	if (keepMedia)
+	// nothing to back up or delete when not registered, e.g. on a second
+	// shutdown before the next map is loaded
+	if (tr.registered)
 	{
-		// backup the current media
-		R_BackupModels();
-		R_BackupShaders();
-		R_BackupImages();
-	}
-	else
-	{
-		R_DeleteTextures();
+		if (keepMedia)
+		{
+			// backup the current media
+			R_BackupModels();
+			R_BackupShaders();
+			R_BackupImages();
+		}
+		else
+		{
+			R_DeleteTextures();
+		}
 	}
 
 	R_DoneFreeType();
